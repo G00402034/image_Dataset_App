@@ -1,31 +1,40 @@
-const { app, BrowserWindow } = require('electron');
-const path = require('path');
+const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const path = require("path");
+const fs = require("fs");
 
 function createWindow() {
-  const mainWindow = new BrowserWindow({
-    width: 1280,
+  const win = new BrowserWindow({
+    width: 1200,
     height: 800,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      preload: path.join(__dirname, "preload.js"),
     },
   });
 
-  // In development, load from localhost
-  mainWindow.loadURL('http://localhost:3000');
-
-  // Uncomment this line to open DevTools automatically
-  // mainWindow.webContents.openDevTools();
+  win.loadURL(
+    process.env.ELECTRON_START_URL ||
+      `file://${path.join(__dirname, "../public/index.html")}`
+  );
 }
 
-app.whenReady().then(() => {
-  createWindow();
+app.whenReady().then(createWindow);
 
-  app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
+
+ipcMain.handle("save-file", async (event, { fileName, data }) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    defaultPath: fileName,
+    filters: [{ name: "Zip Files", extensions: ["zip"] }],
   });
+  if (!canceled && filePath) {
+    fs.writeFileSync(filePath, Buffer.from(data));
+    return true;
+  }
+  return false;
 });
 
-app.on('window-all-closed', function () {
-  if (process.platform !== 'darwin') app.quit();
-});
+// TODO: Add more IPC handlers for file operations as needed

@@ -6,13 +6,12 @@ const AugmentationTools = ({
   onAdjustContrast,
   onAugment,
 }) => {
-  // TODO: Implement augmentation options (flip, rotate, etc.)
   return (
     <div>
       <h2>Augmentation Tools</h2>
       <button onClick={onFlip}>Flip</button>
-      <button onClick={onRotate}>Rotate</button>
-      <button onClick={onAdjustContrast}>Adjust Contrast</button>
+      <button onClick={() => onRotate(90)}>Rotate 90°</button>
+      <button onClick={() => onAdjustContrast(1.2)}>Increase Contrast</button>
       <button onClick={onAugment}>Augment</button>
     </div>
   );
