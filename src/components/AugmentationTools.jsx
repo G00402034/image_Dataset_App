@@ -201,69 +201,10 @@ const AugmentationTools = ({
           🎲 Random Augmentation
         </button>
         
-        {onBurstWithAugmentation && (
-          <button 
-            onClick={handleBurstWithAugmentation}
-            disabled={isBursting || selectedAugmentations.length === 0}
-            style={{
-              ...styles.actionButton,
-              ...styles.burstButton,
-              ...(isBursting || selectedAugmentations.length === 0 ? styles.disabledButton : {})
-            }}
-          >
-            📸 Burst + Augment
-          </button>
-        )}
+
       </div>
 
-      {/* Quick Presets */}
-      <div style={styles.section}>
-        <h4 style={styles.sectionTitle}>Quick Presets</h4>
-        <div style={styles.presets}>
-          <button 
-            onClick={() => {
-              setSelectedAugmentations(['brightness', 'contrast', 'saturation']);
-              setAugmentationSettings(prev => ({
-                ...prev,
-                brightness: 1.2,
-                contrast: 10,
-                saturation: 1.1
-              }));
-            }}
-            style={styles.presetButton}
-          >
-            🌟 Enhanced
-          </button>
-          
-          <button 
-            onClick={() => {
-              setSelectedAugmentations(['noise', 'blur']);
-              setAugmentationSettings(prev => ({
-                ...prev,
-                noise: 0.15,
-                blur: 1.5
-              }));
-            }}
-            style={styles.presetButton}
-          >
-            📷 Vintage
-          </button>
-          
-          <button 
-            onClick={() => {
-              setSelectedAugmentations(['hue', 'saturation']);
-              setAugmentationSettings(prev => ({
-                ...prev,
-                hue: 15,
-                saturation: 1.3
-              }));
-            }}
-            style={styles.presetButton}
-          >
-            🌈 Vibrant
-          </button>
-        </div>
-      </div>
+
     </div>
   );
 };
@@ -372,27 +313,10 @@ const styles = {
     alignItems: 'center',
     gap: '4px'
   },
-  burstButton: {
-    backgroundColor: '#28a745'
-  },
+
   disabledButton: {
     backgroundColor: '#6c757d',
     cursor: 'not-allowed'
-  },
-  presets: {
-    display: 'flex',
-    gap: '8px',
-    flexWrap: 'wrap'
-  },
-  presetButton: {
-    padding: '6px 10px',
-    backgroundColor: '#ffffff',
-    border: '1px solid #dee2e6',
-    borderRadius: '4px',
-    fontSize: '11px',
-    fontWeight: '500',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease'
   }
 };
 

@@ -6,10 +6,16 @@ const BurstCapture = ({ onBurstCapture, isBursting }) => {
 
   const handleBurst = async () => {
     if (isBursting) return;
-    for (let i = 0; i < burstCount; i++) {
-      await onBurstCapture();
-      await new Promise((resolve) => setTimeout(resolve, burstInterval));
+    
+    // Warn user if burst count is high
+    if (burstCount > 20) {
+      const confirmed = window.confirm(
+        `Are you sure you want to capture ${burstCount} images? This may take a while and could impact performance.`
+      );
+      if (!confirmed) return;
     }
+    
+    await onBurstCapture(burstCount, burstInterval);
   };
 
   return (
@@ -21,7 +27,7 @@ const BurstCapture = ({ onBurstCapture, isBursting }) => {
             type="number"
             value={burstCount}
             min={1}
-            max={100}
+            max={50}
             onChange={(e) => setBurstCount(Number(e.target.value))}
             style={styles.input}
           />

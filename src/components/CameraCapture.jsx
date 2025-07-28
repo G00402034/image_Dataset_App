@@ -2,8 +2,8 @@ import React, { useRef, useState, useEffect } from "react";
 import Webcam from "react-webcam";
 import BurstCapture from "./BurstCapture";
 import AugmentationTools from "./AugmentationTools";
-import ROISelector from "./ROISelector";
 import LightingWarnings from "./LightingWarnings";
+import AugmentationPreview from "./AugmentationPreview";
 import {
   flipImage,
   rotateImage,
@@ -17,14 +17,15 @@ import {
 } from "../utils/imageUtils";
 import { hotkeyManager, initializeDefaultHotkeys } from "../utils/hotkeyManager";
 
-const CameraCapture = ({ onCapture }) => {
+const CameraCapture = ({ onCapture, roi, setRoi, lightingWarningsEnabled, setLightingWarningsEnabled }) => {
   const webcamRef = useRef(null);
   const [isBursting, setIsBursting] = useState(false);
   const [lastImage, setLastImage] = useState(null);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [roi, setRoi] = useState(null);
-  const [lightingWarningsEnabled, setLightingWarningsEnabled] = useState(true);
-  const [showHotkeyHelp, setShowHotkeyHelp] = useState(false);
+
+  const [isDrawingROI, setIsDrawingROI] = useState(false);
+  const [roiStart, setRoiStart] = useState(null);
+  const [showAugmentationPreview, setShowAugmentationPreview] = useState(false);
 
   // Initialize hotkeys
   useEffect(() => {
@@ -48,7 +49,7 @@ const CameraCapture = ({ onCapture }) => {
       exportDataset: () => console.log('Export dataset'),
       uploadToDrive: () => console.log('Upload to drive'),
       toggleLightingWarnings: () => setLightingWarningsEnabled(!lightingWarningsEnabled),
-      showHelp: () => setShowHotkeyHelp(true)
+      showHelp: () => console.log('Show help')
     };
 
     initializeDefaultHotkeys(callbacks);
@@ -57,15 +58,15 @@ const CameraCapture = ({ onCapture }) => {
     return () => {
       hotkeyManager.destroy();
     };
-  }, [lightingWarningsEnabled]);
+  }, [lightingWarningsEnabled, setRoi]);
 
-  const handleSingleCapture = () => {
+  const handleSingleCapture = async () => {
     if (webcamRef.current) {
       setIsCapturing(true);
       const imageSrc = webcamRef.current.getScreenshot();
       
       // Apply ROI if selected
-      const finalImage = roi ? cropImageWithROI(imageSrc, roi) : imageSrc;
+      const finalImage = roi ? await cropImageWithROI(imageSrc, roi) : imageSrc;
       
       setLastImage(finalImage);
       onCapture(finalImage);
@@ -73,14 +74,23 @@ const CameraCapture = ({ onCapture }) => {
     }
   };
 
-  const handleBurstCapture = async () => {
+  const handleBurstCapture = async (count = 5, interval = 200) => {
     setIsBursting(true);
-    if (webcamRef.current) {
-      const imageSrc = webcamRef.current.getScreenshot();
-      const finalImage = roi ? cropImageWithROI(imageSrc, roi) : imageSrc;
-      setLastImage(finalImage);
-      onCapture(finalImage);
+    
+    for (let i = 0; i < count; i++) {
+      if (webcamRef.current) {
+        const imageSrc = webcamRef.current.getScreenshot();
+        const finalImage = roi ? await cropImageWithROI(imageSrc, roi) : imageSrc;
+        setLastImage(finalImage);
+        onCapture(finalImage);
+      }
+      
+      // Wait for interval between captures (except for the last one)
+      if (i < count - 1) {
+        await new Promise((resolve) => setTimeout(resolve, interval));
+      }
     }
+    
     setIsBursting(false);
   };
 
@@ -153,9 +163,39 @@ const CameraCapture = ({ onCapture }) => {
     setIsBursting(false);
   };
 
-  // ROI handlers
-  const handleROIChange = (newRoi) => {
-    setRoi(newRoi);
+  // ROI handlers for direct camera overlay
+  const handleROIMouseDown = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    setIsDrawingROI(true);
+    setRoiStart({ x, y });
+    setRoi(null);
+  };
+
+  const handleROIMouseMove = (e) => {
+    if (!isDrawingROI || !roiStart) return;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    const newRoi = {
+      x: Math.min(roiStart.x, x),
+      y: Math.min(roiStart.y, y),
+      width: Math.abs(x - roiStart.x),
+      height: Math.abs(y - roiStart.y)
+    };
+    
+    if (newRoi.width > 20 && newRoi.height > 20) {
+      setRoi(newRoi);
+    }
+  };
+
+  const handleROIMouseUp = () => {
+    setIsDrawingROI(false);
+    setRoiStart(null);
   };
 
   const handleResetROI = () => {
@@ -264,8 +304,45 @@ const CameraCapture = ({ onCapture }) => {
             screenshotFormat="image/jpeg"
             style={styles.webcam}
           />
-          <div style={styles.cameraOverlay}>
-            <div style={styles.cameraFrame}></div>
+          <div 
+            style={styles.roiOverlay}
+            onMouseDown={handleROIMouseDown}
+            onMouseMove={handleROIMouseMove}
+            onMouseUp={handleROIMouseUp}
+            onMouseLeave={handleROIMouseUp}
+          >
+            {roi && (
+              <>
+                <div style={styles.roiMask} />
+                <div style={{
+                  ...styles.roiBorder,
+                  left: roi.x,
+                  top: roi.y,
+                  width: roi.width,
+                  height: roi.height
+                }} />
+                <div style={{
+                  ...styles.roiHandle,
+                  left: roi.x - 4,
+                  top: roi.y - 4
+                }} />
+                <div style={{
+                  ...styles.roiHandle,
+                  left: roi.x + roi.width - 4,
+                  top: roi.y - 4
+                }} />
+                <div style={{
+                  ...styles.roiHandle,
+                  left: roi.x - 4,
+                  top: roi.y + roi.height - 4
+                }} />
+                <div style={{
+                  ...styles.roiHandle,
+                  left: roi.x + roi.width - 4,
+                  top: roi.y + roi.height - 4
+                }} />
+              </>
+            )}
           </div>
         </div>
         
@@ -293,11 +370,19 @@ const CameraCapture = ({ onCapture }) => {
           <BurstCapture onBurstCapture={handleBurstCapture} isBursting={isBursting} />
           
           <button
-            onClick={() => setShowHotkeyHelp(true)}
-            style={styles.helpButton}
-            title="Show keyboard shortcuts"
+            onClick={() => setShowAugmentationPreview(!showAugmentationPreview)}
+            style={styles.previewButton}
+            title="Toggle augmentation preview"
           >
-            ⌨️ Help
+            {showAugmentationPreview ? '👁️ Hide Preview' : '👁️ Show Preview'}
+          </button>
+          
+          <button
+            onClick={() => setRoi(null)}
+            style={styles.clearRoiButton}
+            title="Clear ROI"
+          >
+            🗑️ Clear ROI
           </button>
         </div>
       </div>
@@ -315,24 +400,28 @@ const CameraCapture = ({ onCapture }) => {
           />
         </div>
 
-        <div style={styles.toolsSection}>
-          <ROISelector 
-            onROIChange={handleROIChange}
-            isActive={true}
-          />
-        </div>
+        {lightingWarningsEnabled && (
+          <div style={styles.toolsSection}>
+            <LightingWarnings
+              webcamRef={webcamRef}
+              isEnabled={lightingWarningsEnabled}
+              onWarningChange={(status) => {
+                if (status.overall === 'critical') {
+                  console.warn('Critical lighting conditions detected');
+                }
+              }}
+            />
+          </div>
+        )}
 
-        <div style={styles.toolsSection}>
-          <LightingWarnings
-            webcamRef={webcamRef}
-            isEnabled={lightingWarningsEnabled}
-            onWarningChange={(status) => {
-              if (status.overall === 'critical') {
-                console.warn('Critical lighting conditions detected');
-              }
-            }}
-          />
-        </div>
+        {showAugmentationPreview && (
+          <div style={styles.toolsSection}>
+            <AugmentationPreview
+              webcamRef={webcamRef}
+              isEnabled={showAugmentationPreview}
+            />
+          </div>
+        )}
       </div>
 
       {lastImage && (
@@ -340,52 +429,6 @@ const CameraCapture = ({ onCapture }) => {
           <h3 style={styles.sectionTitle}>Last Captured Image</h3>
           <div style={styles.previewContainer}>
             <img src={lastImage} alt="Preview" style={styles.previewImage} />
-          </div>
-        </div>
-      )}
-
-      {/* Hotkey Help Modal */}
-      {showHotkeyHelp && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modal}>
-            <div style={styles.modalHeader}>
-              <h3>Keyboard Shortcuts</h3>
-              <button 
-                onClick={() => setShowHotkeyHelp(false)}
-                style={styles.closeButton}
-              >
-                ✕
-              </button>
-            </div>
-            <div style={styles.modalContent}>
-              <div style={styles.hotkeySection}>
-                <h4>Capture</h4>
-                <p><kbd>Space</kbd> - Capture image</p>
-                <p><kbd>Ctrl + Space</kbd> - Burst capture</p>
-              </div>
-              <div style={styles.hotkeySection}>
-                <h4>Augmentation</h4>
-                <p><kbd>F</kbd> - Flip image</p>
-                <p><kbd>R</kbd> - Rotate image</p>
-                <p><kbd>Ctrl + ↑/↓</kbd> - Brightness</p>
-                <p><kbd>Ctrl + Shift + ↑/↓</kbd> - Contrast</p>
-                <p><kbd>Ctrl + ←/→</kbd> - Saturation</p>
-                <p><kbd>N</kbd> - Add noise</p>
-                <p><kbd>B</kbd> - Apply blur</p>
-                <p><kbd>S</kbd> - Sharpen</p>
-                <p><kbd>A</kbd> - Random augmentation</p>
-              </div>
-              <div style={styles.hotkeySection}>
-                <h4>ROI</h4>
-                <p><kbd>Esc</kbd> - Clear ROI</p>
-                <p><kbd>Ctrl + R</kbd> - Reset ROI</p>
-              </div>
-              <div style={styles.hotkeySection}>
-                <h4>Utilities</h4>
-                <p><kbd>L</kbd> - Toggle lighting warnings</p>
-                <p><kbd>F1</kbd> - Show this help</p>
-              </div>
-            </div>
           </div>
         </div>
       )}
@@ -419,23 +462,39 @@ const styles = {
     height: 'auto',
     display: 'block'
   },
-  cameraOverlay: {
+  roiOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
+    cursor: 'crosshair',
+    zIndex: 10
+  },
+  roiMask: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
     pointerEvents: 'none'
   },
-  cameraFrame: {
+  roiBorder: {
     position: 'absolute',
-    top: '10%',
-    left: '10%',
-    right: '10%',
-    bottom: '10%',
-    border: '2px solid #007bff',
-    borderRadius: '8px',
-    boxShadow: '0 0 0 9999px rgba(0,0,0,0.3)'
+    border: '2px dashed #007bff',
+    pointerEvents: 'none',
+    zIndex: 11
+  },
+  roiHandle: {
+    position: 'absolute',
+    width: '8px',
+    height: '8px',
+    backgroundColor: '#007bff',
+    border: '2px solid #ffffff',
+    borderRadius: '50%',
+    pointerEvents: 'none',
+    zIndex: 12
   },
   controls: {
     display: 'flex',
@@ -460,9 +519,19 @@ const styles = {
     backgroundColor: '#6c757d',
     cursor: 'not-allowed'
   },
-  helpButton: {
+  clearRoiButton: {
     padding: '8px 16px',
     backgroundColor: '#6c757d',
+    color: '#ffffff',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '14px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
+  },
+  previewButton: {
+    padding: '8px 16px',
+    backgroundColor: '#17a2b8',
     color: '#ffffff',
     border: 'none',
     borderRadius: '6px',
@@ -506,49 +575,6 @@ const styles = {
     width: '100%',
     height: 'auto',
     display: 'block'
-  },
-  modalOverlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000
-  },
-  modal: {
-    backgroundColor: '#ffffff',
-    borderRadius: '12px',
-    maxWidth: '500px',
-    width: '90%',
-    maxHeight: '80vh',
-    overflow: 'hidden',
-    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)'
-  },
-  modalHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '20px',
-    borderBottom: '1px solid #e9ecef'
-  },
-  closeButton: {
-    background: 'none',
-    border: 'none',
-    fontSize: '20px',
-    color: '#6c757d',
-    cursor: 'pointer'
-  },
-  modalContent: {
-    padding: '20px',
-    maxHeight: '60vh',
-    overflowY: 'auto'
-  },
-  hotkeySection: {
-    marginBottom: '20px'
   }
 };
 
