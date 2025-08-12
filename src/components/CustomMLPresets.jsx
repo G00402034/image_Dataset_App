@@ -128,7 +128,10 @@ const CustomMLPresets = ({ onApplyPreset, onSavePreset }) => {
             </div>
             
             <button 
-              onClick={() => onApplyPreset(preset)}
+              onClick={() => {
+                console.log('Custom preset clicked:', preset);
+                onApplyPreset(preset);
+              }}
               style={styles.applyButton}
             >
               Apply Preset

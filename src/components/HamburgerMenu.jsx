@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { formatHotkey, isHotkeysEnabled, toggleHotkeys } from '../utils/hotkeyManager';
 
 const HamburgerMenu = ({ 
-  onShowHelp, 
-  onToggleLightingWarnings, 
-  lightingWarningsEnabled,
-  onShowExport,
-  onShowProjects
+  onShowHotkeyHelp, 
+  onShowExportModal, 
+  onPageChange,
+  userType,
+  onUserTypeChange,
+  currentProject
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [hotkeysEnabled, setHotkeysEnabled] = useState(isHotkeysEnabled());
@@ -22,7 +23,7 @@ const HamburgerMenu = ({
       icon: '📁',
       label: 'Project Management',
       action: () => {
-        onShowProjects();
+        onPageChange('projects');
         setIsOpen(false);
       }
     },
@@ -31,7 +32,7 @@ const HamburgerMenu = ({
       icon: '📤',
       label: 'Export Dataset',
       action: () => {
-        onShowExport();
+        onShowExportModal();
         setIsOpen(false);
       }
     },
@@ -40,29 +41,9 @@ const HamburgerMenu = ({
       icon: '❓',
       label: 'Help & Shortcuts',
       action: () => {
-        onShowHelp();
+        onShowHotkeyHelp();
         setIsOpen(false);
       }
-    },
-    {
-      id: 'lighting',
-      icon: '💡',
-      label: 'Toggle Lighting Warnings',
-      action: () => {
-        onToggleLightingWarnings();
-        setIsOpen(false);
-      },
-      status: lightingWarningsEnabled ? 'Enabled' : 'Disabled'
-    },
-    {
-      id: 'hotkeys',
-      icon: '⌨️',
-      label: 'Toggle Hotkeys',
-      action: () => {
-        handleToggleHotkeys();
-        setIsOpen(false);
-      },
-      status: hotkeysEnabled ? 'Enabled' : 'Disabled'
     },
     {
       id: 'settings',
@@ -138,6 +119,14 @@ const HamburgerMenu = ({
             </div>
 
             <div style={styles.menuFooter}>
+              <div style={styles.projectInfo}>
+                <h4 style={styles.projectTitle}>Current Project</h4>
+                <div style={styles.projectDetails}>
+                  <span style={styles.projectName}>{currentProject?.name || 'Default Project'}</span>
+                  <span style={styles.projectType}>{userType === 'premium' ? 'Premium' : 'Base'} User</span>
+                </div>
+              </div>
+              
               <div style={styles.quickShortcuts}>
                 <h4 style={styles.shortcutsTitle}>Quick Shortcuts</h4>
                 <div style={styles.shortcutsList}>
@@ -280,6 +269,35 @@ const styles = {
     borderTop: '1px solid #e9ecef',
     padding: '16px 20px',
     backgroundColor: '#f8f9fa'
+  },
+  projectInfo: {
+    marginBottom: '16px',
+    padding: '12px',
+    backgroundColor: '#ffffff',
+    borderRadius: '6px',
+    border: '1px solid #e9ecef'
+  },
+  projectTitle: {
+    margin: '0 0 8px 0',
+    fontSize: '12px',
+    color: '#6c757d',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px'
+  },
+  projectDetails: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px'
+  },
+  projectName: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#2c3e50'
+  },
+  projectType: {
+    fontSize: '12px',
+    color: '#6c757d'
   },
   quickShortcuts: {
     marginBottom: '12px'

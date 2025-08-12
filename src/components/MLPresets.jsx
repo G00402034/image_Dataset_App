@@ -136,7 +136,8 @@ const MLPresets = ({ onApplyPreset }) => {
   ];
 
   const handlePresetClick = (preset) => {
-    onApplyPreset(preset.settings);
+    console.log('ML preset clicked:', preset);
+    onApplyPreset(preset);
   };
 
   return (

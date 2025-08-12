@@ -19,7 +19,12 @@ const AugmentationTools = ({
   onAugment,
   onBurstWithAugmentation,
   isBursting,
-  lastImage
+  lastImage,
+  livePreviewEnabled,
+  onLivePreviewSettingChange,
+  livePreviewSettings,
+  activeAugmentations,
+  onLivePreviewAugmentationToggle
 }) => {
   const [selectedAugmentations, setSelectedAugmentations] = useState([]);
   const [augmentationSettings, setAugmentationSettings] = useState({
@@ -89,6 +94,8 @@ const AugmentationTools = ({
         case 'sharpen':
           currentImage = await applySharpen(currentImage || lastImage, setting);
           break;
+        default:
+          break;
       }
     }
     
@@ -110,8 +117,8 @@ const AugmentationTools = ({
 
   return (
     <div style={styles.container}>
-      <h3 style={styles.title}>ML Augmentation Tools</h3>
-      
+      <h3 style={styles.title}>Augmentation Tools</h3>
+
       {/* Basic Augmentations */}
       <div style={styles.section}>
         <h4 style={styles.sectionTitle}>Basic Transformations</h4>
@@ -148,31 +155,46 @@ const AugmentationTools = ({
         <div style={styles.advancedTools}>
           {augmentationOptions.slice(2).map(option => (
             <div key={option.id} style={styles.augmentationOption}>
-              <label style={styles.checkboxLabel}>
-                <input
-                  type="checkbox"
-                  checked={selectedAugmentations.includes(option.id)}
-                  onChange={() => handleAugmentationToggle(option.id)}
-                  style={styles.checkbox}
-                />
-                <span style={styles.optionLabel}>
-                  {option.icon} {option.name}
-                </span>
-              </label>
+              <div style={styles.optionHeader}>
+                <label style={styles.checkboxLabel}>
+                  <input
+                    type="checkbox"
+                    checked={livePreviewEnabled ? activeAugmentations.includes(option.id) : selectedAugmentations.includes(option.id)}
+                    onChange={() => {
+                      if (livePreviewEnabled) {
+                        onLivePreviewAugmentationToggle(option.id);
+                      } else {
+                        handleAugmentationToggle(option.id);
+                      }
+                    }}
+                    style={styles.checkbox}
+                  />
+                  <span style={styles.optionLabel}>
+                    {option.icon} {option.name}
+                  </span>
+                </label>
+              </div>
               
-              {selectedAugmentations.includes(option.id) && option.type === 'slider' && (
+              {(livePreviewEnabled ? activeAugmentations.includes(option.id) : selectedAugmentations.includes(option.id)) && option.type === 'slider' && (
                 <div style={styles.sliderContainer}>
                   <input
                     type="range"
                     min={option.min}
                     max={option.max}
                     step={option.step}
-                    value={augmentationSettings[option.id]}
-                    onChange={(e) => handleSettingChange(option.id, e.target.value)}
+                    value={livePreviewEnabled ? livePreviewSettings[option.id] : augmentationSettings[option.id]}
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value);
+                      if (livePreviewEnabled) {
+                        onLivePreviewSettingChange(option.id, value);
+                      } else {
+                        handleSettingChange(option.id, value);
+                      }
+                    }}
                     style={styles.slider}
                   />
                   <span style={styles.sliderValue}>
-                    {augmentationSettings[option.id]}
+                    {livePreviewEnabled ? livePreviewSettings[option.id] : augmentationSettings[option.id]}
                   </span>
                 </div>
               )}
@@ -183,16 +205,18 @@ const AugmentationTools = ({
 
       {/* Action Buttons */}
       <div style={styles.actionButtons}>
-        <button 
-          onClick={applySelectedAugmentations}
-          disabled={selectedAugmentations.length === 0}
-          style={{
-            ...styles.actionButton,
-            ...(selectedAugmentations.length === 0 ? styles.disabledButton : {})
-          }}
-        >
-          🎯 Apply Selected ({selectedAugmentations.length})
-        </button>
+        {!livePreviewEnabled && (
+          <button 
+            onClick={applySelectedAugmentations}
+            disabled={selectedAugmentations.length === 0}
+            style={{
+              ...styles.actionButton,
+              ...(selectedAugmentations.length === 0 ? styles.disabledButton : {})
+            }}
+          >
+            🎯 Apply Selected ({selectedAugmentations.length})
+          </button>
+        )}
         
         <button 
           onClick={handleRandomAugmentation}
@@ -200,11 +224,15 @@ const AugmentationTools = ({
         >
           🎲 Random Augmentation
         </button>
-        
 
+        {livePreviewEnabled && (
+          <div style={styles.livePreviewStats}>
+            <span style={styles.statsText}>
+              Active Effects: {activeAugmentations.length}
+            </span>
+          </div>
+        )}
       </div>
-
-
     </div>
   );
 };
@@ -217,7 +245,7 @@ const styles = {
     border: '1px solid #e9ecef'
   },
   title: {
-    margin: '0 0 16px 0',
+    margin: '0 0 12px 0',
     color: '#2c3e50',
     fontSize: '16px',
     fontWeight: '600'
@@ -258,6 +286,10 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '4px'
+  },
+  optionHeader: {
+    display: 'flex',
+    alignItems: 'center'
   },
   checkboxLabel: {
     display: 'flex',
@@ -313,10 +345,22 @@ const styles = {
     alignItems: 'center',
     gap: '4px'
   },
-
   disabledButton: {
     backgroundColor: '#6c757d',
     cursor: 'not-allowed'
+  },
+  livePreviewStats: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '8px 12px',
+    backgroundColor: '#d4edda',
+    color: '#155724',
+    borderRadius: '4px',
+    border: '1px solid #c3e6cb'
+  },
+  statsText: {
+    fontSize: '12px',
+    fontWeight: '500'
   }
 };
 

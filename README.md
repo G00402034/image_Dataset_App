@@ -6,9 +6,17 @@ A modern, feature-rich application for collecting and organizing image datasets 
 
 ### 📸 Image Capture
 - **Real-time camera capture** with webcam integration
-- **Burst capture mode** for rapid image collection
-- **Image augmentation tools** including flip, rotate, and contrast adjustment
+- **Burst capture mode** for rapid image collection with configurable count and intervals
+- **Live ML augmentation preview** - see effects in real-time before capturing
+- **Image augmentation tools** including flip, rotate, brightness, contrast, saturation, noise, blur, hue, and sharpen
 - **Live preview** of captured images
+
+### 🎨 ML Augmentation Tools
+- **Live Preview Mode**: Apply effects in real-time to the camera feed
+- **Real-time Effects**: Brightness, contrast, saturation, noise, hue adjustments
+- **Batch Processing**: Apply multiple augmentations to captured images
+- **Random Augmentation**: Generate random combinations of effects
+- **Performance Optimized**: Throttled rendering for smooth live preview
 
 ### 🏷️ Class Management
 - **Create and manage classes** for organizing your dataset
@@ -76,12 +84,13 @@ npm run electron
 src/
 ├── components/
 │   ├── App.jsx              # Main application component
-│   ├── CameraCapture.jsx    # Camera capture interface
+│   ├── CameraCapture.jsx    # Camera capture interface with live preview
 │   ├── ClassManager.jsx     # Class management interface
 │   ├── DatasetPreview.jsx   # Dataset preview and management
 │   ├── ExportPanel.jsx      # Export functionality
-│   ├── BurstCapture.jsx     # Burst capture controls
-│   └── AugmentationTools.jsx # Image augmentation tools
+│   ├── BurstCapture.jsx     # Enhanced burst capture controls
+│   ├── AugmentationTools.jsx # ML augmentation tools with live preview
+│   └── LightingWarnings.jsx # Real-time lighting analysis
 ├── utils/
 │   ├── fileUtils.js         # Export and file utilities
 │   ├── imageUtils.js        # Image processing utilities
@@ -97,8 +106,9 @@ src/
 - **Compression**: Configurable compression levels for ZIP files
 
 ### Camera Settings
-- **Burst Mode**: Configurable count and interval
-- **Augmentation**: Real-time image processing tools
+- **Burst Mode**: Configurable count (1-50) and interval (50-2000ms)
+- **Live Preview**: Real-time ML augmentation effects
+- **Augmentation**: Advanced image processing tools
 - **Preview**: Live preview of captured images
 
 ## 🎯 Usage Guide
@@ -114,19 +124,44 @@ src/
 3. Images are automatically assigned to the selected class
 4. Use burst capture for rapid collection
 
-### 3. Managing Your Dataset
+### 3. Using Live ML Augmentation Preview
+1. Enable "Live Preview Mode" in the Augmentation Tools
+2. Select augmentation effects (brightness, contrast, saturation, etc.)
+3. Adjust settings with real-time sliders
+4. See effects applied to the live camera feed
+5. Capture images with the applied effects
+
+### 4. Burst Capture
+1. Set the desired count (1-50 images)
+2. Configure interval between captures (50-2000ms)
+3. Click "Burst Capture" to start
+4. Monitor progress with real-time feedback
+
+### 5. Managing Your Dataset
 1. View all images in the Dataset Preview
 2. Filter by class or view unassigned images
 3. Reassign classes using the dropdown selectors
 4. Delete unwanted images with the trash button
 
-### 4. Exporting Your Dataset
+### 6. Exporting Your Dataset
 1. Use the Export Panel to configure export options
 2. Choose between ZIP or CSV format
 3. Configure organization and metadata options
 4. Click export to download your dataset
 
 ## 🛠️ Technical Details
+
+### Live Preview System
+- **Canvas-based rendering** for real-time effects
+- **Throttled updates** (~30 FPS) for optimal performance
+- **Direct pixel manipulation** for immediate feedback
+- **Memory efficient** processing pipeline
+
+### Burst Capture Enhancements
+- **Robust error handling** with user feedback
+- **Input validation** for count and interval settings
+- **Progress tracking** with visual indicators
+- **Async/await pattern** for reliable timing
 
 ### Export Formats
 

@@ -10,8 +10,10 @@ export function exportDatasetAsZip(dataset, zipFilePath) {
 }
 
 // Enhanced export functionality
-export async function exportToCSV(images, classes) {
+export async function exportToCSV(images, classes, options = {}) {
   try {
+    const { filename = 'dataset_metadata.csv' } = options;
+
     // Create CSV content with image metadata
     const csvHeaders = ['filename', 'class', 'width', 'height', 'capture_date'];
     const csvRows = [csvHeaders.join(',')];
@@ -21,11 +23,8 @@ export async function exportToCSV(images, classes) {
       const className = img.className || 'unassigned';
       const captureDate = new Date().toISOString();
       
-      // Extract image dimensions if available
-      const imgElement = new Image();
-      imgElement.src = img.src;
-      const width = imgElement.width || 0;
-      const height = imgElement.height || 0;
+      const width = img.width || 0;
+      const height = img.height || 0;
       
       const row = [
         filename,
@@ -39,17 +38,19 @@ export async function exportToCSV(images, classes) {
     });
     
     const csvContent = csvRows.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    
+
     if (window.electronAPI) {
-      await window.electronAPI.saveFile('dataset_metadata.csv', blob);
+      const encoder = new TextEncoder();
+      const data = encoder.encode(csvContent);
+      await window.electronAPI.saveFile(filename.endsWith('.csv') ? filename : `${filename}.csv`, data);
       return { success: true, message: 'CSV exported successfully' };
     } else {
       // Fallback for web browser
+      const blob = new Blob([csvContent], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'dataset_metadata.csv';
+      a.download = filename.endsWith('.csv') ? filename : `${filename}.csv`;
       a.click();
       URL.revokeObjectURL(url);
       return { success: true, message: 'CSV downloaded successfully' };
@@ -62,8 +63,8 @@ export async function exportToCSV(images, classes) {
 
 export async function exportToZIP(images, classes, options = {}) {
   try {
+    const { includeMetadata = true, organizeByClass = true, filename = 'dataset.zip' } = options;
     const zip = new JSZip();
-    const { includeMetadata = true, organizeByClass = true } = options;
     
     // Create metadata file
     if (includeMetadata) {
@@ -85,15 +86,15 @@ export async function exportToZIP(images, classes, options = {}) {
     // Add images to zip
     images.forEach((img, idx) => {
       const base64 = img.src.replace(/^data:image\/\w+;base64,/, "");
-      const filename = `image_${idx + 1}.jpg`;
+      const imageFileName = `image_${idx + 1}.jpg`;
       
       if (organizeByClass && img.className) {
         // Create class folders
         const folder = zip.folder(img.className);
-        folder.file(filename, base64, { base64: true });
+        folder.file(imageFileName, base64, { base64: true });
       } else {
         // Put all images in root
-        zip.file(filename, base64, { base64: true });
+        zip.file(imageFileName, base64, { base64: true });
       }
     });
     
@@ -104,7 +105,7 @@ export async function exportToZIP(images, classes, options = {}) {
     });
     
     if (window.electronAPI) {
-      await window.electronAPI.saveFile("dataset.zip", content);
+      await window.electronAPI.saveFile(filename.endsWith('.zip') ? filename : `${filename}.zip`, content);
       return { success: true, message: 'ZIP exported successfully' };
     } else {
       // Fallback for web browser
@@ -112,7 +113,7 @@ export async function exportToZIP(images, classes, options = {}) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'dataset.zip';
+      a.download = filename.endsWith('.zip') ? filename : `${filename}.zip`;
       a.click();
       URL.revokeObjectURL(url);
       return { success: true, message: 'ZIP downloaded successfully' };
@@ -124,9 +125,15 @@ export async function exportToZIP(images, classes, options = {}) {
 }
 
 export async function exportDataset(images, classes, format = 'zip', options = {}) {
+  // Allow calling with options object only
+  if (typeof format === 'object' && !options) {
+    options = format;
+    format = options.format || 'zip';
+  }
+
   switch (format.toLowerCase()) {
     case 'csv':
-      return await exportToCSV(images, classes);
+      return await exportToCSV(images, classes, options);
     case 'zip':
       return await exportToZIP(images, classes, options);
     default:

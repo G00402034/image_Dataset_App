@@ -7,6 +7,17 @@ const BurstCapture = ({ onBurstCapture, isBursting }) => {
   const handleBurst = async () => {
     if (isBursting) return;
     
+    // Validate inputs
+    if (burstCount < 1 || burstCount > 50) {
+      alert('Burst count must be between 1 and 50');
+      return;
+    }
+    
+    if (burstInterval < 50 || burstInterval > 2000) {
+      alert('Burst interval must be between 50ms and 2000ms');
+      return;
+    }
+    
     // Warn user if burst count is high
     if (burstCount > 20) {
       const confirmed = window.confirm(
@@ -15,7 +26,14 @@ const BurstCapture = ({ onBurstCapture, isBursting }) => {
       if (!confirmed) return;
     }
     
-    await onBurstCapture(burstCount, burstInterval);
+    try {
+      console.log(`Starting burst capture with ${burstCount} images and ${burstInterval}ms intervals`);
+      await onBurstCapture(burstCount, burstInterval);
+      console.log('Burst capture completed successfully');
+    } catch (error) {
+      console.error('Burst capture error:', error);
+      alert('Burst capture failed. Please try again.');
+    }
   };
 
   return (
@@ -30,6 +48,7 @@ const BurstCapture = ({ onBurstCapture, isBursting }) => {
             max={50}
             onChange={(e) => setBurstCount(Number(e.target.value))}
             style={styles.input}
+            disabled={isBursting}
           />
         </div>
         
@@ -39,10 +58,11 @@ const BurstCapture = ({ onBurstCapture, isBursting }) => {
             type="number"
             value={burstInterval}
             min={50}
-            max={1000}
+            max={2000}
             step={50}
             onChange={(e) => setBurstInterval(Number(e.target.value))}
             style={styles.input}
+            disabled={isBursting}
           />
         </div>
       </div>
@@ -58,7 +78,7 @@ const BurstCapture = ({ onBurstCapture, isBursting }) => {
         {isBursting ? (
           <>
             <div style={styles.spinner}></div>
-            Bursting...
+            Bursting... ({burstCount})
           </>
         ) : (
           <>
@@ -66,6 +86,14 @@ const BurstCapture = ({ onBurstCapture, isBursting }) => {
           </>
         )}
       </button>
+      
+      {isBursting && (
+        <div style={styles.progressInfo}>
+          <span style={styles.progressText}>
+            Capturing {burstCount} images with {burstInterval}ms intervals...
+          </span>
+        </div>
+      )}
     </div>
   );
 };
@@ -123,6 +151,17 @@ const styles = {
     borderTop: '2px solid transparent',
     borderRadius: '50%',
     animation: 'spin 1s linear infinite'
+  },
+  progressInfo: {
+    padding: '8px 12px',
+    backgroundColor: '#fff3cd',
+    color: '#856404',
+    borderRadius: '4px',
+    border: '1px solid #ffeaa7',
+    fontSize: '12px'
+  },
+  progressText: {
+    fontWeight: '500'
   }
 };
 

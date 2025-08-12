@@ -6,11 +6,14 @@ import GoogleDriveIntegration from "./GoogleDriveIntegration";
 import ProjectsPage from "./ProjectsPage";
 import ExportModal from "./ExportModal";
 import HamburgerMenu from "./HamburgerMenu";
-import MLPresets from "./MLPresets";
+// import MLPresets from "./MLPresets";
 import CustomMLPresets from "./CustomMLPresets";
 import HotkeyHelp from "./HotkeyHelp";
+import Header from "./Header";
+import AuthModal from "./AuthModal";
 import { exportDataset } from "../utils/fileUtils";
 import { googleDriveManager } from "../utils/googleDriveUtils";
+import { setToken as setApiToken } from "../utils/api";
 
 const App = () => {
   const [images, setImages] = useState([]);
@@ -27,27 +30,40 @@ const App = () => {
     imageCount: 0,
     classCount: 0
   });
-  const [userType, setUserType] = useState('base'); // 'base' or 'premium'
-  const [currentPage, setCurrentPage] = useState('main'); // 'main' or 'projects'
+  const [userType, setUserType] = useState('base');
+  const [currentPage, setCurrentPage] = useState('main');
   const [showExportModal, setShowExportModal] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
 
-  // Load data from localStorage
+  // ML Preset state
+  const [currentMLPreset, setCurrentMLPreset] = useState(null);
+
   useEffect(() => {
     const savedImages = localStorage.getItem('imageDataset_images');
     const savedClasses = localStorage.getItem('imageDataset_classes');
     const savedProject = localStorage.getItem('imageDataset_currentProject');
-    
+    const savedUser = localStorage.getItem('auth_user');
+    const savedToken = localStorage.getItem('auth_token');
     if (savedImages) setImages(JSON.parse(savedImages));
     if (savedClasses) setClasses(JSON.parse(savedClasses));
     if (savedProject) setCurrentProject(JSON.parse(savedProject));
+    if (savedUser) setCurrentUser(JSON.parse(savedUser));
+    if (savedToken) setApiToken(savedToken);
   }, []);
 
-  // Save data to localStorage
   useEffect(() => {
     localStorage.setItem('imageDataset_images', JSON.stringify(images));
     localStorage.setItem('imageDataset_classes', JSON.stringify(classes));
     localStorage.setItem('imageDataset_currentProject', JSON.stringify(currentProject));
   }, [images, classes, currentProject]);
+
+  const handleAuth = (user, token) => {
+    setCurrentUser(user);
+    if (user) localStorage.setItem('auth_user', JSON.stringify(user));
+    if (!user) localStorage.removeItem('auth_user');
+    if (!token) localStorage.removeItem('auth_token');
+  };
 
   const handleCapture = (imageSrc) => {
     const newImage = {
@@ -55,10 +71,10 @@ const App = () => {
       src: imageSrc,
       className: selectedClass,
       timestamp: new Date().toISOString(),
-      width: 640, // Default values, will be updated with actual dimensions
+      width: 640,
       height: 480
     };
-    setImages([...images, newImage]);
+    setImages(prev => [...prev, newImage]);
   };
 
   const handleAddClass = (newClass) => {
@@ -69,7 +85,6 @@ const App = () => {
 
   const handleDeleteClass = (classToDelete) => {
     setClasses(classes.filter(cls => cls !== classToDelete));
-    // Remove class from all images
     setImages(images.map(img => 
       img.className === classToDelete ? { ...img, className: null } : img
     ));
@@ -107,241 +122,142 @@ const App = () => {
     console.log('Export completed:', result);
   };
 
-  const handleGoogleDriveUploadComplete = (result) => {
-    console.log('Google Drive upload completed:', result);
+  const handleApplyMLPreset = (preset) => {
+    setCurrentMLPreset(preset);
   };
 
-  const handleROIChange = (newRoi) => {
-    setRoi(newRoi);
-  };
-
-  const handleToggleLightingWarnings = () => {
-    const newState = !lightingWarningsEnabled;
-    setLightingWarningsEnabled(newState);
-    console.log('Lighting warnings toggled:', newState);
-  };
-
-  const handleShowHelp = () => {
-    setShowHotkeyHelp(true);
+  const handleClearMLPreset = () => {
+    setCurrentMLPreset(null);
   };
 
   const handleProjectChange = (project) => {
     setCurrentProject(project);
   };
 
-  const handleProjectCreate = (project) => {
-    setCurrentProject(project);
+  const handleUserTypeChange = (type) => {
+    setUserType(type);
   };
 
-  const handleProjectDelete = (project) => {
-    // Handle project deletion if needed
-    console.log('Project deleted:', project);
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
   };
 
-  const handleApplyMLPreset = (presetSettings) => {
-    // Apply ML preset settings to augmentation tools
-    console.log('Applying ML preset:', presetSettings);
-    // Show a notification to the user
-    alert(`ML preset applied! Settings: ${Object.entries(presetSettings).map(([k, v]) => `${k}: ${v}`).join(', ')}`);
+  const handleShowHotkeyHelp = () => {
+    setShowHotkeyHelp(!showHotkeyHelp);
   };
 
-  const handleApplyCustomPreset = (preset) => {
-    // Apply custom preset settings
-    console.log('Applying custom preset:', preset);
-    // Show a notification to the user
-    alert(`Custom preset "${preset.name}" applied! ${preset.selectedAugmentations.length} augmentations selected.`);
+  const handleShowExportModal = () => {
+    setShowExportModal(!showExportModal);
   };
 
-  const handleShowExport = () => {
-    setShowExportModal(true);
-  };
-
-  const handleShowProjects = () => {
-    setCurrentPage('projects');
-  };
-
-  const handleBackToMain = () => {
-    setCurrentPage('main');
-  };
+  if (currentPage === 'projects') {
+    return (
+      <ProjectsPage
+        currentProject={currentProject}
+        onProjectChange={handleProjectChange}
+        onPageChange={handlePageChange}
+        userType={userType}
+        onUserTypeChange={handleUserTypeChange}
+      />
+    );
+  }
 
   return (
-    <div style={styles.app}>
-      {currentPage === 'main' ? (
-        <>
-          <header style={styles.header}>
-            <div style={styles.headerContent}>
-              <h1 style={styles.title}>Image Dataset Creator</h1>
-              <div style={styles.headerControls}>
-                <div style={styles.projectInfo}>
-                  <span style={styles.projectName}>{currentProject.name}</span>
-                  <span style={styles.projectStats}>
-                    📸 {images.length} • 🏷️ {classes.length}
-                  </span>
-                </div>
-                <HamburgerMenu
-                  onShowHelp={handleShowHelp}
-                  onToggleLightingWarnings={handleToggleLightingWarnings}
-                  lightingWarningsEnabled={lightingWarningsEnabled}
-                  onShowExport={handleShowExport}
-                  onShowProjects={handleShowProjects}
-                />
-              </div>
-            </div>
-          </header>
+    <div style={styles.container}>
+      <Header
+        currentProject={currentProject}
+        onShowProjects={() => setCurrentPage('projects')}
+        onShowExport={() => setShowExportModal(true)}
+        onShowAuth={() => setAuthModalOpen(true)}
+        isAuthenticated={!!currentUser}
+      />
 
-          <div style={styles.mainContent}>
-            <div style={styles.leftPanel}>
-              <div style={styles.section}>
-                            <CameraCapture 
-              onCapture={handleCapture} 
-              roi={roi}
-              setRoi={setRoi}
-              lightingWarningsEnabled={lightingWarningsEnabled}
-              setLightingWarningsEnabled={setLightingWarningsEnabled}
-            />
-              </div>
-            </div>
+      {showHotkeyHelp && (
+        <HotkeyHelp onClose={() => setShowHotkeyHelp(false)} />
+      )}
 
-            <div style={styles.rightPanel}>
-              <div style={styles.section}>
-                <ClassManager
-                  classes={classes}
-                  onAddClass={handleAddClass}
-                  onDeleteClass={handleDeleteClass}
-                  selectedClass={selectedClass}
-                  onSelectClass={setSelectedClass}
-                />
-              </div>
-
-              <div style={styles.section}>
-                <MLPresets onApplyPreset={handleApplyMLPreset} />
-              </div>
-
-              <div style={styles.section}>
-                <CustomMLPresets 
-                  onApplyPreset={handleApplyCustomPreset}
-                  onSavePreset={(preset) => console.log('Save preset:', preset)}
-                />
-              </div>
-
-              <div style={styles.section}>
-                <GoogleDriveIntegration
-                  images={images}
-                  classes={classes}
-                  onUploadComplete={handleGoogleDriveUploadComplete}
-                />
-              </div>
-
-              <div style={styles.section}>
-                <DatasetPreview
-                  images={images}
-                  classes={classes}
-                  onAssignClass={handleAssignClass}
-                  onDeleteImage={handleDeleteImage}
-                  onBulkAssignClass={handleBulkAssignClass}
-                  onBulkDelete={handleBulkDelete}
-                />
-              </div>
-            </div>
-          </div>
-        </>
-      ) : (
-        <ProjectsPage
-          projects={[currentProject]} // For now, just the current project
+      {showExportModal && (
+        <ExportModal
+          onClose={() => setShowExportModal(false)}
+          images={images}
+          classes={classes}
           currentProject={currentProject}
-          onProjectChange={handleProjectChange}
-          onProjectCreate={handleProjectCreate}
-          onProjectDelete={handleProjectDelete}
-          onBackToMain={handleBackToMain}
         />
       )}
 
-      <HotkeyHelp
-        isVisible={showHotkeyHelp}
-        onClose={() => setShowHotkeyHelp(false)}
-      />
+      {authModalOpen && (
+        <AuthModal
+          onClose={() => setAuthModalOpen(false)}
+          onAuth={handleAuth}
+        />
+      )}
 
-      <ExportModal
-        isOpen={showExportModal}
-        onClose={() => setShowExportModal(false)}
-        images={images}
-        classes={classes}
-        currentProject={currentProject}
-      />
+      <div style={styles.mainContent} className="mainContent">
+        <div style={styles.leftPanel}>
+          <ClassManager
+            classes={classes}
+            selectedClass={selectedClass}
+            onAddClass={handleAddClass}
+            onDeleteClass={handleDeleteClass}
+            onSelectClass={setSelectedClass}
+          />
+        </div>
+
+        <div style={styles.centerPanel}>
+          <div style={styles.customPresetsSection}>
+            <CustomMLPresets 
+              onApplyPreset={handleApplyMLPreset}
+              onSavePreset={(preset) => console.log('Saved preset:', preset)}
+            />
+          </div>
+          <CameraCapture
+            onCapture={handleCapture}
+            roi={roi}
+            setRoi={setRoi}
+            lightingWarningsEnabled={lightingWarningsEnabled}
+            setLightingWarningsEnabled={setLightingWarningsEnabled}
+            currentMLPreset={currentMLPreset}
+            onApplyMLPreset={handleApplyMLPreset}
+            onClearMLPreset={handleClearMLPreset}
+          />
+        </div>
+
+        <div style={styles.rightPanel}>
+          <DatasetPreview
+            images={images}
+            classes={classes}
+            onAssignClass={handleAssignClass}
+            onDeleteImage={handleDeleteImage}
+            onBulkAssignClass={handleBulkAssignClass}
+            onBulkDelete={handleBulkDelete}
+          />
+        </div>
+      </div>
     </div>
   );
 };
 
 const styles = {
-  app: {
+  container: {
     minHeight: '100vh',
-    backgroundColor: '#f8f9fa',
-    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'
-  },
-  header: {
-    backgroundColor: '#ffffff',
-    borderBottom: '1px solid #e9ecef',
-    padding: '16px 0',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-  },
-  headerContent: {
-    maxWidth: '1400px',
-    margin: '0 auto',
-    padding: '0 20px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  title: {
-    margin: 0,
-    color: '#2c3e50',
-    fontSize: '24px',
-    fontWeight: '700'
-  },
-  headerControls: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '16px'
-  },
-  projectInfo: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-end',
-    gap: '4px'
-  },
-  projectName: {
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#495057'
-  },
-  projectStats: {
-    fontSize: '12px',
-    color: '#6c757d'
+    backgroundColor: 'var(--bg)',
+    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
   },
   mainContent: {
-    maxWidth: '1400px',
-    margin: '0 auto',
-    padding: '20px',
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '24px',
-    minHeight: 'calc(100vh - 100px)'
+    gridTemplateColumns: '240px 1fr 320px',
+    gap: '16px',
+    padding: '16px',
+    minHeight: 'calc(100vh - 56px)'
   },
-  leftPanel: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px'
-  },
-  rightPanel: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px'
-  },
-  section: {
-    backgroundColor: '#ffffff',
-    borderRadius: '12px',
-    border: '1px solid #e9ecef',
-    overflow: 'hidden'
+  leftPanel: { display: 'flex', flexDirection: 'column', gap: '16px' },
+  centerPanel: { display: 'flex', flexDirection: 'column', gap: '16px' },
+  rightPanel: { display: 'flex', flexDirection: 'column' },
+  customPresetsSection: {
+    backgroundColor: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    padding: '8px'
   }
 };
 

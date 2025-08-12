@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { exportDataset } from '../utils/fileUtils';
 
 const ExportModal = ({ 
-  isOpen, 
   onClose, 
   images, 
   classes, 
@@ -16,6 +15,7 @@ const ExportModal = ({
     includeROI: true
   });
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingToDrive, setIsExportingToDrive] = useState(false);
 
   const handleExport = async () => {
     if (images.length === 0) {
@@ -27,21 +27,58 @@ const ExportModal = ({
     try {
       const projectName = currentProject?.name || 'dataset';
       const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-      const filename = `${projectName}_${timestamp}`;
+      const baseName = `${projectName}_${timestamp}`;
 
-      await exportDataset(images, classes, {
-        format: exportFormat,
-        filename,
-        ...exportOptions
-      });
+      const result = await exportDataset(
+        images,
+        classes,
+        exportFormat,
+        {
+          ...exportOptions,
+          filename: baseName + (exportFormat === 'zip' ? '.zip' : '.csv'),
+          format: exportFormat
+        }
+      );
 
-      alert(`Dataset exported successfully as ${filename}.${exportFormat}`);
+      if (!result.success) throw new Error(result.message || 'Export failed');
+
+      alert(`Dataset exported successfully as ${baseName}.${exportFormat}`);
       onClose();
     } catch (error) {
       console.error('Export failed:', error);
       alert('Export failed. Please try again.');
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleExportToDrive = async () => {
+    if (images.length === 0) {
+      alert('No images to export!');
+      return;
+    }
+    setIsExportingToDrive(true);
+    try {
+      const projectName = currentProject?.name || 'dataset';
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const baseName = `${projectName}_${timestamp}`;
+
+      // Generate ZIP in-memory
+      const res = await exportDataset(images, classes, 'zip', { filename: baseName + '.zip' });
+      if (!res.success) throw new Error(res.message || 'ZIP generation failed');
+
+      // Call backend stub: in future this will upload to Drive
+      const apiBase = process.env.REACT_APP_API_BASE || 'http://localhost:4000/api';
+      const response = await fetch(`${apiBase}/drive/export-zip`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: baseName + '.zip' }) });
+      if (!response.ok) throw new Error('Drive export not implemented yet');
+
+      alert('Sent to Drive (stub). We will complete this in the next step.');
+      onClose();
+    } catch (e) {
+      console.error(e);
+      alert(e.message || 'Export to Drive failed');
+    } finally {
+      setIsExportingToDrive(false);
     }
   };
 
@@ -60,8 +97,6 @@ const ExportModal = ({
   };
 
   const stats = getDatasetStats();
-
-  if (!isOpen) return null;
 
   return (
     <div style={styles.modalOverlay}>
@@ -194,9 +229,27 @@ const ExportModal = ({
             <button 
               onClick={onClose}
               style={styles.cancelButton}
-              disabled={isExporting}
+              disabled={isExporting || isExportingToDrive}
             >
               Cancel
+            </button>
+            <button 
+              onClick={handleExportToDrive}
+              disabled={isExportingToDrive || stats.totalImages === 0}
+              style={{
+                ...styles.exportButton,
+                backgroundColor: '#10b981',
+                ...(isExportingToDrive || stats.totalImages === 0 ? styles.disabledButton : {})
+              }}
+            >
+              {isExportingToDrive ? (
+                <>
+                  <div style={styles.spinner}></div>
+                  Exporting to Drive...
+                </>
+              ) : (
+                'Export to Drive'
+              )}
             </button>
             <button 
               onClick={handleExport}
