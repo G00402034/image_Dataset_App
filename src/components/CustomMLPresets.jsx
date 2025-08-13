@@ -126,6 +126,11 @@ const CustomMLPresets = ({ onApplyPreset, onSavePreset }) => {
                 {new Date(preset.createdAt).toLocaleDateString()}
               </span>
             </div>
+            <div style={styles.settingsList}>
+              {Object.entries(preset.settings || {}).map(([k, v]) => (
+                <div key={k} style={styles.settingRow}><span style={styles.settingKey}>{k}</span><span style={styles.settingVal}>{String(v)}</span></div>
+              ))}
+            </div>
             
             <button 
               onClick={() => {
@@ -508,7 +513,11 @@ const styles = {
   disabledButton: {
     backgroundColor: '#6c757d',
     cursor: 'not-allowed'
-  }
+  },
+  settingsList: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 8 },
+  settingRow: { display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#374151' },
+  settingKey: { fontWeight: 600 },
+  settingVal: { fontFamily: 'monospace' }
 };
 
 export default CustomMLPresets; 

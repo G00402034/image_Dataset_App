@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../utils/api';
+import JSZip from 'jszip';
 
 const ProjectsPage = ({ 
   projects: projectsProp, 
@@ -13,8 +14,12 @@ const ProjectsPage = ({
   const [loading, setLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [projectToDuplicate, setProjectToDuplicate] = useState(null);
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [newProjectName, setNewProjectName] = useState('');
+  const [duplicateName, setDuplicateName] = useState('');
+  const [includeImages, setIncludeImages] = useState(false);
 
   useEffect(() => { setProjects(projectsProp || []); }, [projectsProp]);
 
@@ -50,6 +55,28 @@ const ProjectsPage = ({
     }
   };
 
+  const handleDuplicateProject = async () => {
+    if (!projectToDuplicate || !duplicateName.trim()) return;
+    try {
+      await api.projects.update(projectToDuplicate._id || projectToDuplicate.id, {}); // noop to ensure access
+      await apiRequestDuplicate(projectToDuplicate._id || projectToDuplicate.id, duplicateName.trim(), includeImages);
+      setShowDuplicateModal(false);
+      setDuplicateName('');
+      setIncludeImages(false);
+      await fetchProjects();
+    } catch (e) { console.error(e); }
+  };
+
+  const apiRequestDuplicate = async (id, name, includeImages) => {
+    const res = await fetch((process.env.REACT_APP_API_BASE || 'http://localhost:4000/api') + `/projects/${id}/duplicate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(localStorage.getItem('auth_token') ? { Authorization: `Bearer ${localStorage.getItem('auth_token')}` } : {}) },
+      body: JSON.stringify({ name, includeImages })
+    });
+    if (!res.ok) throw new Error('Duplicate failed');
+    return res.json();
+  };
+
   const handleDeleteProject = (project) => {
     setProjectToDelete(project);
     setShowDeleteModal(true);
@@ -74,9 +101,35 @@ const ProjectsPage = ({
 
   const switchToProject = async (project) => {
     if (onProjectChange) return onProjectChange(project);
-    // Fallback: store in localStorage
     localStorage.setItem('imageDataset_currentProject', JSON.stringify(project));
     if (onBackToMain) onBackToMain();
+  };
+
+  const handleImportZip = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const zip = await JSZip.loadAsync(file);
+      // Use file name (without extension) for project name
+      const baseName = file.name.replace(/\.zip$/i, '');
+      const created = await api.projects.create(baseName, 'Imported from ZIP');
+      const projectId = created._id || created.id;
+
+      // Iterate files; only image files
+      const entries = Object.values(zip.files).filter(f => /\.(jpg|jpeg|png)$/i.test(f.name));
+      for (const entry of entries) {
+        const blob = await entry.async('base64');
+        const dataUrl = `data:image/${entry.name.toLowerCase().endsWith('.png') ? 'png' : 'jpeg'};base64,${blob}`;
+        await api.projects.images.add(projectId, { src: dataUrl, className: null, timestamp: new Date().toISOString() });
+      }
+      alert(`Imported ${entries.length} images into project "${baseName}"`);
+      await fetchProjects();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to import ZIP');
+    } finally {
+      e.target.value = '';
+    }
   };
 
   return (
@@ -99,6 +152,10 @@ const ProjectsPage = ({
           >
             ➕ Create New Project
           </button>
+          <label style={{ ...styles.createButton, backgroundColor: '#374151', cursor: 'pointer' }}>
+            ⬆ Import from ZIP
+            <input type="file" accept=".zip" style={{ display: 'none' }} onChange={handleImportZip} />
+          </label>
         </div>
 
         {loading ? (
@@ -142,6 +199,12 @@ const ProjectsPage = ({
                       Switch to Project
                     </button>
                   )}
+                  <button 
+                    onClick={() => { setProjectToDuplicate(project); setDuplicateName(project.name + ' Copy'); setShowDuplicateModal(true);} }
+                    style={styles.duplicateButton}
+                  >
+                    Duplicate
+                  </button>
                   {projects.length > 1 && (
                     <button 
                       onClick={() => handleDeleteProject(project)}
@@ -221,6 +284,57 @@ const ProjectsPage = ({
         </div>
       )}
 
+      {/* Duplicate Project Modal */}
+      {showDuplicateModal && projectToDuplicate && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHeader}>
+              <h3>Duplicate Project</h3>
+              <button 
+                onClick={() => setShowDuplicateModal(false)}
+                style={styles.closeButton}
+              >
+                ✕
+              </button>
+            </div>
+            <div style={styles.modalContent}>
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>New Project Name:</label>
+                <input
+                  type="text"
+                  value={duplicateName}
+                  onChange={(e) => setDuplicateName(e.target.value)}
+                  placeholder="Enter new project name..."
+                  style={styles.input}
+                />
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                <input type="checkbox" checked={includeImages} onChange={(e)=> setIncludeImages(e.target.checked)} />
+                Include images
+              </label>
+              <div style={styles.modalActions}>
+                <button 
+                  onClick={() => setShowDuplicateModal(false)}
+                  style={styles.cancelButton}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleDuplicateProject}
+                  disabled={!duplicateName.trim()}
+                  style={{
+                    ...styles.confirmButton,
+                    ...(!duplicateName.trim() ? styles.disabledButton : {})
+                  }}
+                >
+                  Duplicate
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Project Modal */}
       {showDeleteModal && projectToDelete && (
         <div style={styles.modalOverlay}>
@@ -267,11 +381,11 @@ const styles = {
   backButton: { padding: '10px 16px', backgroundColor: '#6c757d', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s ease' },
   title: { margin: 0, color: '#2c3e50', fontSize: '28px', fontWeight: '600' },
   content: { marginBottom: '30px' },
-  actions: { marginBottom: '30px' },
+  actions: { marginBottom: '30px', display: 'flex', gap: 12, flexWrap: 'wrap' },
   createButton: { padding: '12px 24px', backgroundColor: '#007bff', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s ease' },
   projectsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '20px' },
-  projectCard: { backgroundColor: '#ffffff', borderRadius: '12px', padding: '20px', border: '2px solid #e9ecef', transition: 'all 0.2s ease', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' },
-  activeProject: { borderColor: '#007bff', boxShadow: '0 4px 12px rgba(0,123,255,0.2)' },
+  projectCard: { backgroundColor: '#ffffff', borderRadius: '12px', padding: '20px', borderWidth: '2px', borderStyle: 'solid', borderColor: '#e9ecef', transition: 'all 0.2s ease', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' },
+  activeProject: { borderWidth: '2px', borderStyle: 'solid', borderColor: '#007bff', boxShadow: '0 4px 12px rgba(0,123,255,0.2)' },
   projectHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
   projectTitle: { margin: 0, color: '#2c3e50', fontSize: '18px', fontWeight: '600' },
   activeBadge: { backgroundColor: '#28a745', color: '#ffffff', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '500' },
@@ -281,6 +395,7 @@ const styles = {
   statValue: { color: '#495057', fontSize: '14px', fontWeight: '500' },
   projectActions: { display: 'flex', gap: '8px' },
   switchButton: { padding: '8px 16px', backgroundColor: '#007bff', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s ease', flex: 1 },
+  duplicateButton: { padding: '8px 16px', backgroundColor: '#10b981', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s ease' },
   deleteButton: { padding: '8px 16px', backgroundColor: '#dc3545', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s ease' },
   emptyState: { textAlign: 'center', padding: '60px 20px' },
   emptyIcon: { fontSize: '48px', marginBottom: '16px' },

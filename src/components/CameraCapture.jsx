@@ -17,7 +17,7 @@ import {
 } from "../utils/imageUtils";
 import { hotkeyManager, initializeDefaultHotkeys } from "../utils/hotkeyManager";
 
-const CameraCapture = ({ onCapture, roi, setRoi, lightingWarningsEnabled, setLightingWarningsEnabled, currentMLPreset, onApplyMLPreset, onClearMLPreset }) => {
+const CameraCapture = ({ onCapture, roi, setRoi, lightingWarningsEnabled, setLightingWarningsEnabled, currentMLPreset, onApplyMLPreset, onClearMLPreset, onWebcamRef }) => {
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
   const [isBursting, setIsBursting] = useState(false);
@@ -28,32 +28,30 @@ const CameraCapture = ({ onCapture, roi, setRoi, lightingWarningsEnabled, setLig
   const [roiStart, setRoiStart] = useState(null);
   const [showAugmentationPreview, setShowAugmentationPreview] = useState(false);
 
-  // Live preview state for ML augmentations
+  // Live preview state
   const [livePreviewEnabled, setLivePreviewEnabled] = useState(false);
-  const [livePreviewSettings, setLivePreviewSettings] = useState({
-    brightness: 1.0,
-    contrast: 0,
-    saturation: 1.0,
-    noise: 0,
-    blur: 0,
-    hue: 0,
-    sharpen: 0
-  });
+  const [livePreviewSettings, setLivePreviewSettings] = useState({ brightness: 1.0, contrast: 0, saturation: 1.0, noise: 0, blur: 0, hue: 0, sharpen: 0 });
   const [activeAugmentations, setActiveAugmentations] = useState([]);
+  const [augmentationRanges, setAugmentationRanges] = useState({ brightness: { min: 0.9, max: 1.1 }, contrast: { min: -10, max: 10 }, saturation: { min: 0.9, max: 1.1 }, noise: { min: 0.0, max: 0.1 }, blur: { min: 0, max: 1.0 }, hue: { min: -10, max: 10 }, sharpen: { min: 0.0, max: 0.5 } });
+  const [previewFlipH, setPreviewFlipH] = useState(false);
+  const [previewRotate, setPreviewRotate] = useState(0);
+
+  // Auto-enable live preview when any augmentation or transform is active
+  useEffect(() => {
+    const anyActive = activeAugmentations.length > 0 || previewFlipH || previewRotate;
+    setLivePreviewEnabled(anyActive);
+  }, [activeAugmentations, previewFlipH, previewRotate]);
 
   // Sync active augmentations from current preset when applied
   useEffect(() => {
     if (currentMLPreset && currentMLPreset.settings) {
       const presetSettings = currentMLPreset.settings;
       setLivePreviewSettings(prev => ({ ...prev, ...presetSettings }));
-      const presetActive = Object.entries(presetSettings)
-        .filter(([_, v]) => v !== 0 && v !== 1.0)
-        .map(([k]) => k);
+      const presetActive = Object.entries(presetSettings).filter(([_, v]) => v !== 0 && v !== 1.0).map(([k]) => k);
       setActiveAugmentations(presetActive);
     }
   }, [currentMLPreset]);
 
-  // Initialize hotkeys
   useEffect(() => {
     const callbacks = {
       capture: handleSingleCapture,
@@ -72,205 +70,125 @@ const CameraCapture = ({ onCapture, roi, setRoi, lightingWarningsEnabled, setLig
       randomAugment: handleRandomAugmentation,
       clearROI: () => setRoi(null),
       resetROI: handleResetROI,
-      exportDataset: () => console.log('Export dataset'),
-      uploadToDrive: () => console.log('Upload to drive'),
+      exportDataset: () => {},
+      uploadToDrive: () => {},
       toggleLightingWarnings: () => setLightingWarningsEnabled(!lightingWarningsEnabled),
-      showHelp: () => console.log('Show help')
+      showHelp: () => {}
     };
-
-    initializeDefaultHotkeys(callbacks);
-    hotkeyManager.initialize();
-
-    return () => {
-      hotkeyManager.destroy();
-    };
+    initializeDefaultHotkeys(callbacks); hotkeyManager.initialize();
+    return () => { hotkeyManager.destroy(); };
   }, [lightingWarningsEnabled, setRoi]);
 
-  // Live preview effect draws canvas overlay above video
+  // Live preview loop
   useEffect(() => {
     if (!livePreviewEnabled || !webcamRef.current || !canvasRef.current) return;
-
-    let animationFrame;
-    let lastUpdate = 0;
-    const throttleMs = 100; // ~10 FPS for better performance
-
+    let animationFrame; let lastUpdate = 0; const throttleMs = 100;
     const updatePreview = (timestamp) => {
-      if (timestamp - lastUpdate < throttleMs) {
-        animationFrame = requestAnimationFrame(updatePreview);
-        return;
-      }
-      if (webcamRef.current && activeAugmentations.length > 0) {
-        const video = webcamRef.current.video;
-        if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
-          applyLivePreview();
-        }
-      } else if (canvasRef.current) {
-        // If no active augmentations, clear canvas
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-      lastUpdate = timestamp;
-      animationFrame = requestAnimationFrame(updatePreview);
+      if (timestamp - lastUpdate < throttleMs) { animationFrame = requestAnimationFrame(updatePreview); return; }
+      if (webcamRef.current) { const video = webcamRef.current.video; if (video && video.readyState === video.HAVE_ENOUGH_DATA) { applyLivePreview(); } }
+      lastUpdate = timestamp; animationFrame = requestAnimationFrame(updatePreview);
     };
-
     updatePreview(0);
+    return () => { if (animationFrame) cancelAnimationFrame(animationFrame); };
+  }, [livePreviewEnabled, activeAugmentations, livePreviewSettings, previewFlipH, previewRotate]);
 
-    return () => {
-      if (animationFrame) cancelAnimationFrame(animationFrame);
-    };
-  }, [livePreviewEnabled, activeAugmentations, livePreviewSettings]);
+  const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
   const applyLivePreview = () => {
     if (!webcamRef.current || !canvasRef.current) return;
-
-    const video = webcamRef.current.video;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-
-    // Match canvas to video element size on screen
-    const rect = video.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-
-    // Draw current video frame scaled to canvas
-    ctx.drawImage(video, 0, 0, rect.width, rect.height);
-
-    // Apply active augmentations to the pixel data
-    if (activeAugmentations.length > 0) {
+    const video = webcamRef.current.video; const canvas = canvasRef.current; const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const rect = video.getBoundingClientRect(); canvas.width = rect.width; canvas.height = rect.height;
+    ctx.save();
+    // Build CSS-like filter chain for fast live preview of core effects
+    const filterParts = [];
+    if (activeAugmentations.includes('brightness')) filterParts.push(`brightness(${clamp(livePreviewSettings.brightness ?? 1, 0.2, 3)})`);
+    if (activeAugmentations.includes('contrast')) filterParts.push(`contrast(${clamp((livePreviewSettings.contrast ?? 0) + 100, 0, 200)}%)`);
+    if (activeAugmentations.includes('saturation')) filterParts.push(`saturate(${clamp(livePreviewSettings.saturation ?? 1, 0, 3)})`);
+    if (activeAugmentations.includes('hue')) filterParts.push(`hue-rotate(${clamp(livePreviewSettings.hue ?? 0, -180, 180)}deg)`);
+    if (activeAugmentations.includes('blur')) filterParts.push(`blur(${clamp(livePreviewSettings.blur ?? 0, 0, 6)}px)`);
+    ctx.filter = filterParts.join(' ');
+    if (previewFlipH) { ctx.translate(rect.width, 0); ctx.scale(-1, 1); }
+    if (previewRotate) { ctx.translate(rect.width / 2, rect.height / 2); ctx.rotate((previewRotate * Math.PI) / 180); ctx.drawImage(video, -rect.width / 2, -rect.height / 2, rect.width, rect.height); }
+    else { ctx.drawImage(video, 0, 0, rect.width, rect.height); }
+    ctx.restore();
+    // Pixel ops for effects not supported by ctx.filter (noise, sharpen)
+    if (activeAugmentations.includes('noise') || activeAugmentations.includes('sharpen')) {
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
-
-      activeAugmentations.forEach(augId => {
-        const setting = livePreviewSettings[augId];
-        switch (augId) {
-          case 'brightness':
-            applyBrightnessToData(data, setting);
-            break;
-          case 'contrast':
-            applyContrastToData(data, setting);
-            break;
-          case 'saturation':
-            applySaturationToData(data, setting);
-            break;
-          case 'noise':
-            applyNoiseToData(data, setting);
-            break;
-          case 'hue':
-            applyHueToData(data, setting);
-            break;
-          default:
-            break;
-        }
-      });
+      if (activeAugmentations.includes('noise')) {
+        applyNoiseToData(data, clamp(livePreviewSettings.noise ?? 0, 0, 0.5));
+      }
+      if (activeAugmentations.includes('sharpen')) {
+        const intensity = clamp(livePreviewSettings.sharpen ?? 0, 0, 1);
+        if (intensity > 0) applySharpenConvolution(imageData, canvas.width, canvas.height, intensity);
+      }
       ctx.putImageData(imageData, 0, 0);
     }
   };
 
-  // Helper functions for live preview data manipulation
-  const applyBrightnessToData = (data, factor) => {
-    for (let i = 0; i < data.length; i += 4) {
-      data[i] = Math.min(255, Math.max(0, data[i] * factor));
-      data[i + 1] = Math.min(255, Math.max(0, data[i + 1] * factor));
-      data[i + 2] = Math.min(255, Math.max(0, data[i + 2] * factor));
-    }
-  };
+  const applyNoiseToData = (data, intensity) => { for (let i = 0; i < data.length; i += 4) { const noise = (Math.random() - 0.5) * 2 * intensity * 255; data[i] = Math.min(255, Math.max(0, data[i] + noise)); data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise)); data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise)); } };
 
-  const applyContrastToData = (data, value) => {
-    const factor = (259 * (value + 255)) / (255 * (259 - value));
-    for (let i = 0; i < data.length; i += 4) {
-      data[i] = Math.min(255, Math.max(0, factor * (data[i] - 128) + 128));
-      data[i + 1] = Math.min(255, Math.max(0, factor * (data[i + 1] - 128) + 128));
-      data[i + 2] = Math.min(255, Math.max(0, factor * (data[i + 2] - 128) + 128));
-    }
-  };
-
-  const applySaturationToData = (data, factor) => {
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-      data[i] = Math.min(255, Math.max(0, gray + factor * (r - gray)));
-      data[i + 1] = Math.min(255, Math.max(0, gray + factor * (g - gray)));
-      data[i + 2] = Math.min(255, Math.max(0, gray + factor * (b - gray)));
-    }
-  };
-
-  const applyNoiseToData = (data, intensity) => {
-    for (let i = 0; i < data.length; i += 4) {
-      const noise = (Math.random() - 0.5) * 2 * intensity * 255;
-      data[i] = Math.min(255, Math.max(0, data[i] + noise));
-      data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise));
-      data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise));
-    }
-  };
-
-  const applyHueToData = (data, shift) => {
-    const shiftRad = (shift * Math.PI) / 180;
-    const cosShift = Math.cos(shiftRad);
-    const sinShift = Math.sin(shiftRad);
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i] / 255;
-      const g = data[i + 1] / 255;
-      const b = data[i + 2] / 255;
-      const y = 0.299 * r + 0.587 * g + 0.114 * b;
-      const u = -0.147 * r - 0.289 * g + 0.436 * b;
-      const v = 0.615 * r - 0.515 * g - 0.100 * b;
-      const uNew = u * cosShift - v * sinShift;
-      const vNew = u * sinShift + v * cosShift;
-      data[i] = Math.min(255, Math.max(0, (y + 1.140 * vNew) * 255));
-      data[i + 1] = Math.min(255, Math.max(0, (y - 0.395 * uNew - 0.581 * vNew) * 255));
-      data[i + 2] = Math.min(255, Math.max(0, (y + 2.032 * uNew) * 255));
-    }
-  };
-
-  // Apply ML preset to an image
-  const applyMLPresetToImage = async (imageSrc, preset) => {
-    if (!preset || !preset.settings) return imageSrc;
-    let processedImage = imageSrc;
-    const settings = preset.settings;
-    for (const [key, value] of Object.entries(settings)) {
-      if (value !== 0 && value !== 1.0) {
-        switch (key) {
-          case 'brightness':
-            processedImage = await adjustBrightness(processedImage, value);
-            break;
-          case 'contrast':
-            processedImage = await adjustContrast(processedImage, value);
-            break;
-          case 'saturation':
-            processedImage = await adjustSaturation(processedImage, value);
-            break;
-          case 'noise':
-            processedImage = await addGaussianNoise(processedImage, value);
-            break;
-          case 'blur':
-            processedImage = await applyBlur(processedImage, value);
-            break;
-          case 'hue':
-            processedImage = await adjustHue(processedImage, value);
-            break;
-          case 'sharpen':
-            processedImage = await applySharpen(processedImage, value);
-            break;
-          default:
-            break;
+  const applySharpenConvolution = (imageData, width, height, intensity) => {
+    // Simple unsharp-like kernel scaled by intensity
+    const s = 0.5 * intensity; // 0..0.5
+    const kernel = [
+      0, -s, 0,
+      -s, 1 + 4 * s, -s,
+      0, -s, 0
+    ];
+    const src = imageData.data;
+    const out = new Uint8ClampedArray(src.length);
+    const w = width, h = height;
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        let r = 0, g = 0, b = 0;
+        let ki = 0;
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const idx = ((y + ky) * w + (x + kx)) * 4;
+            const kval = kernel[ki++];
+            r += src[idx] * kval; g += src[idx + 1] * kval; b += src[idx + 2] * kval;
+          }
         }
+        const di = (y * w + x) * 4;
+        out[di] = Math.max(0, Math.min(255, r));
+        out[di + 1] = Math.max(0, Math.min(255, g));
+        out[di + 2] = Math.max(0, Math.min(255, b));
+        out[di + 3] = src[di + 3];
       }
     }
-    return processedImage;
+    // Copy borders unchanged
+    for (let x = 0; x < w; x++) {
+      const top = x * 4, bot = ((h - 1) * w + x) * 4;
+      out[top] = src[top]; out[top + 1] = src[top + 1]; out[top + 2] = src[top + 2]; out[top + 3] = src[top + 3];
+      out[bot] = src[bot]; out[bot + 1] = src[bot + 1]; out[bot + 2] = src[bot + 2]; out[bot + 3] = src[bot + 3];
+    }
+    for (let y = 0; y < h; y++) {
+      const li = (y * w) * 4, ri = (y * w + (w - 1)) * 4;
+      out[li] = src[li]; out[li + 1] = src[li + 1]; out[li + 2] = src[li + 2]; out[li + 3] = src[li + 3];
+      out[ri] = src[ri]; out[ri + 1] = src[ri + 1]; out[ri + 2] = src[ri + 2]; out[ri + 3] = src[ri + 3];
+    }
+    imageData.data.set(out);
   };
+
+  // Apply preset to image
+  const applyMLPresetToImage = async (imageSrc, preset) => {
+    if (!preset || !preset.settings) return imageSrc; let processedImage = imageSrc; const settings = preset.settings;
+    for (const [key, value] of Object.entries(settings)) { if (value !== 0 && value !== 1.0) { switch (key) {
+      case 'brightness': processedImage = await adjustBrightness(processedImage, value); break;
+      case 'contrast': processedImage = await adjustContrast(processedImage, value); break;
+      case 'saturation': processedImage = await adjustSaturation(processedImage, value); break;
+      case 'noise': processedImage = await addGaussianNoise(processedImage, value); break;
+      case 'blur': processedImage = await applyBlur(processedImage, value); break;
+      case 'hue': processedImage = await adjustHue(processedImage, value); break;
+      case 'sharpen': processedImage = await applySharpen(processedImage, value); break;
+      default: break; } } }
+    return processedImage; };
 
   const captureFromSource = () => {
     if (!webcamRef.current) return null;
-    // If live preview is enabled and canvas has content, capture from canvas to include overlay
-    if (livePreviewEnabled && canvasRef.current && activeAugmentations.length > 0) {
-      try {
-        return canvasRef.current.toDataURL('image/jpeg');
-      } catch (e) {
-        // Fallback if canvas not ready
-      }
+    if (livePreviewEnabled && (activeAugmentations.length > 0 || previewFlipH || previewRotate)) {
+      try { return canvasRef.current?.toDataURL('image/jpeg'); } catch { /* ignore */ }
     }
     return webcamRef.current.getScreenshot();
   };
@@ -385,10 +303,6 @@ const CameraCapture = ({ onCapture, roi, setRoi, lightingWarningsEnabled, setLig
   };
 
   // Live preview handlers
-  const handleLivePreviewToggle = () => {
-    setLivePreviewEnabled(!livePreviewEnabled);
-  };
-
   const handleLivePreviewSettingChange = (augId, value) => {
     setLivePreviewSettings(prev => ({
       ...prev,
@@ -459,6 +373,9 @@ const CameraCapture = ({ onCapture, roi, setRoi, lightingWarningsEnabled, setLig
 
   // Augmentation handlers
   const handleFlip = async () => {
+    // Update live preview transform
+    setPreviewFlipH((v) => !v);
+    // Persist into last image if present
     if (!lastImage) return;
     const augmented = await flipImage(lastImage, 'horizontal');
     setLastImage(augmented);
@@ -466,6 +383,11 @@ const CameraCapture = ({ onCapture, roi, setRoi, lightingWarningsEnabled, setLig
   };
   
   const handleRotate = async (angle) => {
+    // Update live preview rotation
+    setPreviewRotate((r) => {
+      const next = ((r || 0) + angle) % 360; return next < 0 ? next + 360 : next;
+    });
+    // Persist into last image if present
     if (!lastImage) return;
     const augmented = await rotateImage(lastImage, angle);
     setLastImage(augmented);
@@ -535,6 +457,85 @@ const CameraCapture = ({ onCapture, roi, setRoi, lightingWarningsEnabled, setLig
     onCapture(augmented);
   };
 
+  const randomBetween = (min, max) => min + Math.random() * (max - min);
+
+  // Apply random augmentation values within configured ranges
+  const applyRandomInRanges = async () => {
+    if (!lastImage) return;
+    let augmented = lastImage;
+    const newActive = new Set(activeAugmentations);
+    const newPreviewSettings = { ...livePreviewSettings };
+
+    const safeNumber = (v, fallback) => (Number.isFinite(v) ? v : fallback);
+
+    for (const [key, range] of Object.entries(augmentationRanges)) {
+      if (!range || typeof range.min !== 'number' || typeof range.max !== 'number') continue;
+      let value = randomBetween(range.min, range.max);
+      switch (key) {
+        case 'brightness':
+          value = clamp(value, 0.2, 3.0);
+          augmented = await adjustBrightness(augmented, value);
+          newPreviewSettings.brightness = value; newActive.add('brightness');
+          break;
+        case 'contrast': {
+          // expect -255..255 in imageUtils contrast
+          const contrastValue = clamp(value, -100, 100);
+          augmented = await adjustContrast(augmented, contrastValue);
+          newPreviewSettings.contrast = contrastValue; newActive.add('contrast');
+          break;
+        }
+        case 'saturation':
+          value = clamp(value, 0, 3.0);
+          augmented = await adjustSaturation(augmented, value);
+          newPreviewSettings.saturation = value; newActive.add('saturation');
+          break;
+        case 'noise':
+          value = clamp(value, 0, 0.5);
+          augmented = await addGaussianNoise(augmented, value);
+          newPreviewSettings.noise = value; newActive.add('noise');
+          break;
+        case 'blur': {
+          // keep blur radius small and integer to avoid performance and array length issues
+          const radius = Math.round(clamp(value, 0, 6));
+          if (radius > 0) {
+            augmented = await applyBlur(augmented, radius);
+            newPreviewSettings.blur = radius; newActive.add('blur');
+          } else {
+            newPreviewSettings.blur = 0; newActive.delete('blur');
+          }
+          break;
+        }
+        case 'hue': {
+          const hueShift = clamp(value, -180, 180);
+          augmented = await adjustHue(augmented, hueShift);
+          newPreviewSettings.hue = hueShift; newActive.add('hue');
+          break;
+        }
+        case 'sharpen': {
+          const intensity = clamp(value, 0, 1);
+          if (intensity > 0) {
+            augmented = await applySharpen(augmented, intensity);
+            newPreviewSettings.sharpen = intensity; newActive.add('sharpen');
+          } else {
+            newPreviewSettings.sharpen = 0; newActive.delete('sharpen');
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+
+    setLastImage(augmented);
+    onCapture(augmented);
+    setLivePreviewSettings(newPreviewSettings);
+    setActiveAugmentations(Array.from(newActive));
+  };
+
+  useEffect(() => {
+    if (onWebcamRef) onWebcamRef(webcamRef);
+  }, [onWebcamRef]);
+
   return (
     <div style={styles.container}>
       <h2 style={styles.title}>Camera Capture</h2>
@@ -603,24 +604,11 @@ const CameraCapture = ({ onCapture, roi, setRoi, lightingWarningsEnabled, setLig
                 Capturing...
               </>
             ) : (
-              <>
-                📸 Capture Image
-              </>
+              <>📸 Capture Image</>
             )}
           </button>
           
           <BurstCapture onBurstCapture={handleBurstCapture} isBursting={isBursting} />
-          
-          <button
-            onClick={handleLivePreviewToggle}
-            style={{
-              ...styles.previewButton,
-              ...(livePreviewEnabled ? styles.activePreviewButton : {})
-            }}
-            title="Toggle live augmentation preview"
-          >
-            {livePreviewEnabled ? '👁️ Live Preview: ON' : '👁️ Live Preview: OFF'}
-          </button>
           
           <button
             onClick={() => setRoi(null)}
@@ -630,22 +618,6 @@ const CameraCapture = ({ onCapture, roi, setRoi, lightingWarningsEnabled, setLig
             🗑️ Clear ROI
           </button>
         </div>
-
-        {/* ML Preset Status */}
-        {currentMLPreset && (
-          <div style={styles.presetStatus}>
-            <span style={styles.presetLabel}>
-              🎯 Active ML Preset: {currentMLPreset.name || currentMLPreset.id}
-            </span>
-            <button
-              onClick={handleClearMLPreset}
-              style={styles.clearPresetButton}
-              title="Clear ML preset"
-            >
-              ✕
-            </button>
-          </div>
-        )}
       </div>
 
       <div style={styles.toolsGrid}>
@@ -659,36 +631,31 @@ const CameraCapture = ({ onCapture, roi, setRoi, lightingWarningsEnabled, setLig
             isBursting={isBursting}
             lastImage={lastImage}
             livePreviewEnabled={livePreviewEnabled}
-            onLivePreviewToggle={handleLivePreviewToggle}
             onLivePreviewSettingChange={handleLivePreviewSettingChange}
             livePreviewSettings={livePreviewSettings}
             activeAugmentations={activeAugmentations}
             onLivePreviewAugmentationToggle={handleLivePreviewAugmentationToggle}
+            previewFlipH={previewFlipH}
+            previewRotate={previewRotate}
+            onChangePreviewTransform={({ flipH, rotate }) => { if (typeof flipH === 'boolean') setPreviewFlipH(flipH); if (typeof rotate === 'number') setPreviewRotate(rotate); }}
           />
         </div>
+      </div>
 
-        {lightingWarningsEnabled && (
-          <div style={styles.toolsSection}>
-            <LightingWarnings
-              webcamRef={webcamRef}
-              isEnabled={lightingWarningsEnabled}
-              onWarningChange={(status) => {
-                if (status.overall === 'critical') {
-                  console.warn('Critical lighting conditions detected');
-                }
-              }}
-            />
-          </div>
-        )}
-
-        {showAugmentationPreview && (
-          <div style={styles.toolsSection}>
-            <AugmentationPreview
-              webcamRef={webcamRef}
-              isEnabled={showAugmentationPreview}
-            />
-          </div>
-        )}
+      {/* Augmentation ranges */}
+      <div style={styles.rangesCard}>
+        <h4 style={styles.sectionTitle}>Augmentation Ranges</h4>
+        <div style={styles.rangesGrid}>
+          {Object.keys(augmentationRanges).map((key) => (
+            <div key={key} style={styles.rangeRow}>
+              <label style={styles.rangeLabel}>{key}</label>
+              <input type="number" step="0.1" value={augmentationRanges[key].min} onChange={(e)=> setAugmentationRanges(prev=> ({...prev, [key]: { ...prev[key], min: parseFloat(e.target.value)}}))} style={styles.rangeInput} />
+              <span>to</span>
+              <input type="number" step="0.1" value={augmentationRanges[key].max} onChange={(e)=> setAugmentationRanges(prev=> ({...prev, [key]: { ...prev[key], max: parseFloat(e.target.value)}}))} style={styles.rangeInput} />
+            </div>
+          ))}
+        </div>
+        <button onClick={applyRandomInRanges} style={styles.actionButton} disabled={!lastImage}>🎲 Randomize within ranges</button>
       </div>
 
       {lastImage && (
@@ -871,7 +838,13 @@ const styles = {
     width: '100%',
     height: 'auto',
     display: 'block'
-  }
+  },
+  rangesCard: { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 16 },
+  rangesGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 },
+  rangeRow: { display: 'grid', gridTemplateColumns: '80px 1fr auto 1fr', alignItems: 'center', gap: 6 },
+  rangeLabel: { fontSize: 12, color: '#495057', textTransform: 'capitalize' },
+  rangeInput: { width: '100%', padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12 },
+  actionButton: { padding: '8px 12px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', marginTop: 8 }
 };
 
 export default CameraCapture;

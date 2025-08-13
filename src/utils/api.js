@@ -41,7 +41,16 @@ export const api = {
     create(name, description) { return request('/projects', { method: 'POST', body: { name, description } }); },
     get(id) { return request(`/projects/${id}`); },
     update(id, payload) { return request(`/projects/${id}`, { method: 'PUT', body: payload }); },
-    delete(id) { return request(`/projects/${id}`, { method: 'DELETE' }); }
+    delete(id) { return request(`/projects/${id}`, { method: 'DELETE' }); },
+    images: {
+      list(id, { page = 1, pageSize = 30, className } = {}) {
+        const params = new URLSearchParams({ page, pageSize, ...(className ? { className } : {}) });
+        return request(`/projects/${id}/images?${params.toString()}`);
+      },
+      add(id, image) { return request(`/projects/${id}/images`, { method: 'POST', body: image }); },
+      update(id, imageId, payload) { return request(`/projects/${id}/images/${imageId}`, { method: 'PUT', body: payload }); },
+      delete(id, imageId) { return request(`/projects/${id}/images/${imageId}`, { method: 'DELETE' }); }
+    }
   },
   billing: {
     async createCheckoutSession(priceId, successUrl, cancelUrl) {

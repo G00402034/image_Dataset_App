@@ -63,7 +63,7 @@ export async function exportToCSV(images, classes, options = {}) {
 
 export async function exportToZIP(images, classes, options = {}) {
   try {
-    const { includeMetadata = true, organizeByClass = true, filename = 'dataset.zip' } = options;
+    const { includeMetadata = true, organizeByClass = true, filename = 'dataset.zip', returnContent = false } = options;
     const zip = new JSZip();
     
     // Create metadata file
@@ -89,11 +89,9 @@ export async function exportToZIP(images, classes, options = {}) {
       const imageFileName = `image_${idx + 1}.jpg`;
       
       if (organizeByClass && img.className) {
-        // Create class folders
         const folder = zip.folder(img.className);
         folder.file(imageFileName, base64, { base64: true });
       } else {
-        // Put all images in root
         zip.file(imageFileName, base64, { base64: true });
       }
     });
@@ -103,6 +101,10 @@ export async function exportToZIP(images, classes, options = {}) {
       compression: "DEFLATE",
       compressionOptions: { level: 6 }
     });
+
+    if (returnContent) {
+      return { success: true, contentUint8: content };
+    }
     
     if (window.electronAPI) {
       await window.electronAPI.saveFile(filename.endsWith('.zip') ? filename : `${filename}.zip`, content);
@@ -125,7 +127,6 @@ export async function exportToZIP(images, classes, options = {}) {
 }
 
 export async function exportDataset(images, classes, format = 'zip', options = {}) {
-  // Allow calling with options object only
   if (typeof format === 'object' && !options) {
     options = format;
     format = options.format || 'zip';

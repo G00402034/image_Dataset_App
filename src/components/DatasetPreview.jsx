@@ -1,70 +1,118 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { api } from "../utils/api";
 
 const DatasetPreview = ({
-  images,
+  images: imagesProp,
   classes,
   onAssignClass,
   onDeleteImage,
   onBulkAssignClass,
-  onBulkDelete
+  onBulkDelete,
+  currentProject
 }) => {
+  const hasRealProject = !!(currentProject && currentProject._id);
+  const projectId = currentProject?._id;
+
   const [filterClass, setFilterClass] = useState("all");
   const [selectedImages, setSelectedImages] = useState(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
 
-  const filteredImages = images.filter((img) => {
-    if (filterClass === "all") return true;
-    if (filterClass === "unassigned") return !img.className;
-    return img.className === filterClass;
-  });
+  // Server pagination state
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
+  const [total, setTotal] = useState(0);
+  const [pageImages, setPageImages] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const filterParam = useMemo(() => {
+    if (filterClass === 'all') return undefined;
+    if (filterClass === 'unassigned') return 'unassigned';
+    return filterClass;
+  }, [filterClass]);
+
+  const loadPage = async () => {
+    if (!hasRealProject) return;
+    try {
+      setLoading(true);
+      const res = await api.projects.images.list(projectId, { page, pageSize, className: filterParam });
+      setTotal(res.total || 0);
+      setPageImages(res.data || []);
+      setSelectedImages(new Set());
+    } catch (e) {
+      console.error('Failed to load images page:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { if (hasRealProject) loadPage(); }, [hasRealProject, page, pageSize, filterParam, projectId]);
+
+  const images = hasRealProject ? pageImages : (imagesProp || []);
+
+  const locallyFiltered = useMemo(() => {
+    if (hasRealProject) return images;
+    if (!images) return [];
+    if (filterClass === 'all') return images;
+    if (filterClass === 'unassigned') return images.filter(img => !img.className);
+    return images.filter(img => img.className === filterClass);
+  }, [images, hasRealProject, filterClass]);
+
+  const filteredImages = locallyFiltered;
 
   const handleImageSelect = (index) => {
     const newSelected = new Set(selectedImages);
-    if (newSelected.has(index)) {
-      newSelected.delete(index);
-    } else {
-      newSelected.add(index);
-    }
+    if (newSelected.has(index)) newSelected.delete(index); else newSelected.add(index);
     setSelectedImages(newSelected);
   };
 
   const handleSelectAll = () => {
-    if (selectedImages.size === filteredImages.length) {
-      setSelectedImages(new Set());
-    } else {
-      const allIndices = filteredImages.map((_, index) => 
-        images.indexOf(filteredImages[index])
-      );
-      setSelectedImages(new Set(allIndices));
-    }
+    if (selectedImages.size === filteredImages.length) setSelectedImages(new Set());
+    else setSelectedImages(new Set(filteredImages.map((_, index) => index)));
   };
 
   const handleBulkAssign = (className) => {
     const selectedIndices = Array.from(selectedImages);
-    onBulkAssignClass(selectedIndices, className);
-    setSelectedImages(new Set());
-    setIsSelectionMode(false);
-  };
-
-  const handleBulkDelete = () => {
-    if (selectedImages.size === 0) return;
-    
-    if (window.confirm(`Delete ${selectedImages.size} selected images?`)) {
-      const selectedIndices = Array.from(selectedImages);
-      onBulkDelete(selectedIndices);
+    if (hasRealProject) {
+      Promise.all(selectedIndices.map((i) => api.projects.images.update(projectId, images[i]._id || images[i].id, { className })))
+        .then(loadPage)
+        .catch(console.error);
+      setSelectedImages(new Set());
+      setIsSelectionMode(false);
+    } else {
+      onBulkAssignClass(selectedIndices, className);
       setSelectedImages(new Set());
       setIsSelectionMode(false);
     }
   };
 
-  const toggleSelectionMode = () => {
-    setIsSelectionMode(!isSelectionMode);
-    if (isSelectionMode) {
-      setSelectedImages(new Set());
+  const handleBulkDelete = () => {
+    if (selectedImages.size === 0) return;
+    if (window.confirm(`Delete ${selectedImages.size} selected images?`)) {
+      const selectedIndices = Array.from(selectedImages);
+      if (hasRealProject) {
+        Promise.all(selectedIndices.map((i) => api.projects.images.delete(projectId, images[i]._id || images[i].id)))
+          .then(loadPage)
+          .catch(console.error);
+        setSelectedImages(new Set());
+        setIsSelectionMode(false);
+      } else {
+        onBulkDelete(selectedIndices);
+        setSelectedImages(new Set());
+        setIsSelectionMode(false);
+      }
     }
   };
 
+  const toggleSelectionMode = () => {
+    setIsSelectionMode(!isSelectionMode);
+    if (isSelectionMode) setSelectedImages(new Set());
+  };
+
   const getSelectedCount = () => selectedImages.size;
+
+  const totalToShow = hasRealProject ? total : filteredImages.length;
+  const canPrev = hasRealProject ? page > 1 : false;
+  const canNext = hasRealProject ? page * pageSize < total : false;
 
   return (
     <div style={styles.container}>
@@ -73,173 +121,73 @@ const DatasetPreview = ({
         <div style={styles.controls}>
           <select
             value={filterClass}
-            onChange={(e) => setFilterClass(e.target.value)}
+            onChange={(e) => { setFilterClass(e.target.value); if (hasRealProject) setPage(1); }}
             style={styles.filterSelect}
           >
             <option value="all">All Images</option>
             <option value="unassigned">Unassigned</option>
             {classes.map((cls) => (
-              <option key={cls} value={cls}>
-                {cls}
-              </option>
+              <option key={cls} value={cls}>{cls}</option>
             ))}
           </select>
+
+          {hasRealProject && (
+            <>
+              <select value={pageSize} onChange={(e)=>{ setPageSize(Number(e.target.value)); setPage(1); }} style={styles.filterSelect}>
+                {[12, 24, 30, 48, 60, 96].map(s=> (<option key={s} value={s}>{s}/page</option>))}
+              </select>
+              <button onClick={()=> setPage(p=> Math.max(1, p-1))} disabled={!canPrev} style={styles.selectionButton}>Prev</button>
+              <button onClick={()=> setPage(p=> p+1)} disabled={!canNext} style={styles.selectionButton}>Next</button>
+            </>
+          )}
           
-          <button
-            onClick={toggleSelectionMode}
-            style={{
-              ...styles.selectionButton,
-              ...(isSelectionMode ? styles.activeSelectionButton : {})
-            }}
-          >
+          <button onClick={toggleSelectionMode} style={{ ...styles.selectionButton, ...(isSelectionMode ? styles.activeSelectionButton : {}) }}>
             {isSelectionMode ? '✕ Cancel' : '☑️ Select'}
           </button>
+
+          {isSelectionMode && (
+            <>
+              <button onClick={handleSelectAll} style={styles.selectionButton}>
+                {selectedImages.size === filteredImages.length ? 'Deselect All' : 'Select All'}
+              </button>
+              <button onClick={handleBulkDelete} disabled={selectedImages.size === 0} style={styles.bulkDeleteButtonSmall}>🗑 Delete Selected</button>
+            </>
+          )}
         </div>
       </div>
 
-      {isSelectionMode && (
-        <div style={styles.bulkActions}>
-          <div style={styles.bulkInfo}>
-            <span style={styles.selectedCount}>
-              {getSelectedCount()} selected
-            </span>
-            <button
-              onClick={handleSelectAll}
-              style={styles.selectAllButton}
-            >
-              {selectedImages.size === filteredImages.length ? 'Deselect All' : 'Select All'}
-            </button>
-          </div>
-          
-          <div style={styles.bulkControls}>
-            <select
-              onChange={(e) => handleBulkAssign(e.target.value)}
-              style={styles.bulkAssignSelect}
-              defaultValue=""
-            >
-              <option value="" disabled>Assign to class...</option>
-              {classes.map((cls) => (
-                <option key={cls} value={cls}>
-                  Assign to {cls}
-                </option>
-              ))}
-            </select>
-            
-            <button
-              onClick={handleBulkDelete}
-              disabled={selectedImages.size === 0}
-              style={{
-                ...styles.bulkDeleteButton,
-                ...(selectedImages.size === 0 ? styles.disabledButton : {})
-              }}
-            >
-              🗑️ Delete Selected
-            </button>
-          </div>
-        </div>
-      )}
-
-      {images.length === 0 ? (
+      {loading ? (
+        <div style={styles.emptyState}><div>Loading…</div></div>
+      ) : images.length === 0 ? (
         <div style={styles.emptyState}>
           <div style={styles.emptyIcon}>📸</div>
           <h4 style={styles.emptyTitle}>No images yet</h4>
-          <p style={styles.emptyText}>
-            Capture some images to get started with your dataset
-          </p>
-        </div>
-      ) : filteredImages.length === 0 ? (
-        <div style={styles.emptyState}>
-          <div style={styles.emptyIcon}>🔍</div>
-          <h4 style={styles.emptyTitle}>No images match filter</h4>
-          <p style={styles.emptyText}>
-            Try changing the filter or capture more images
-          </p>
+          <p style={styles.emptyText}>Capture some images to get started with your dataset</p>
         </div>
       ) : (
         <div style={styles.imageGrid}>
           {filteredImages.map((img, idx) => {
-            const originalIndex = images.indexOf(img);
+            const originalIndex = idx;
             const isSelected = selectedImages.has(originalIndex);
-            
             return (
-              <div
-                key={originalIndex}
-                style={{
-                  ...styles.imageCard,
-                  ...(isSelected ? styles.selectedImageCard : {}),
-                  ...(isSelectionMode ? styles.selectionModeCard : {})
-                }}
-                className="imageCard"
-              >
+              <div key={img._id || originalIndex} style={{ ...styles.imageCard, ...(isSelected ? styles.selectedImageCard : {}), ...(isSelectionMode ? styles.selectionModeCard : {}) }} className="imageCard">
                 {isSelectionMode && (
                   <div style={styles.selectionCheckbox}>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => handleImageSelect(originalIndex)}
-                      style={styles.checkbox}
-                    />
+                    <input type="checkbox" checked={isSelected} onChange={() => handleImageSelect(originalIndex)} style={styles.checkbox} />
                   </div>
                 )}
-                
                 <div style={styles.imageContainer}>
-                  <img 
-                    src={img.src} 
-                    alt={`img-${originalIndex}`} 
-                    style={styles.image}
-                    onError={(e) => {
-                      console.error('Image failed to load:', img.src);
-                      e.target.style.display = 'none';
-                      e.target.nextSibling.style.display = 'flex';
-                    }}
-                    onLoad={(e) => {
-                      // Update image dimensions if not set
-                      if (!img.width || !img.height) {
-                        console.log('Image loaded with dimensions:', e.target.naturalWidth, 'x', e.target.naturalHeight);
-                      }
-                    }}
-                  />
-                  <div 
-                    style={{
-                      ...styles.imageError,
-                      display: 'none'
-                    }}
-                    className="imageError"
-                  >
-                    <span>⚠️ Image failed to load</span>
-                  </div>
-                  <div style={styles.imageOverlay} className="imageOverlay">
-                    {!isSelectionMode && (
-                      <button
-                        onClick={() => onDeleteImage(originalIndex)}
-                        style={styles.deleteButton}
-                        title="Delete image"
-                      >
-                        🗑️
-                      </button>
-                    )}
-                  </div>
+                  <img src={img.src} alt={`img-${originalIndex}`} style={styles.image} onError={(e)=>{ e.currentTarget.style.display='none'; e.currentTarget.nextSibling.style.display='flex'; }} />
+                  <div style={{ ...styles.imageError, display: 'none' }} className="imageError"><span>⚠️ Image failed to load</span></div>
                 </div>
-                
                 <div style={styles.imageInfo}>
                   <div style={styles.imageMeta}>
-                    <span style={styles.imageIndex}>#{originalIndex + 1}</span>
-                    <span style={styles.imageSize}>
-                      {img.width || 'Unknown'} × {img.height || 'Unknown'}
-                    </span>
+                    <span style={styles.imageIndex}>#{(hasRealProject ? (page - 1) * pageSize + originalIndex + 1 : originalIndex + 1)}</span>
+                    <span style={styles.imageSize}>{img.width || 'Unknown'} × {img.height || 'Unknown'}</span>
                   </div>
-                  
-                  <select
-                    value={img.className || ""}
-                    onChange={(e) => onAssignClass(originalIndex, e.target.value)}
-                    style={styles.classSelect}
-                  >
+                  <select value={img.className || ""} onChange={async (e)=>{ if (hasRealProject) { await api.projects.images.update(projectId, img._id || img.id, { className: e.target.value }); loadPage(); } else { onAssignClass(originalIndex, e.target.value); } }} style={styles.classSelect}>
                     <option value="">Unassigned</option>
-                    {classes.map((cls) => (
-                      <option key={cls} value={cls}>
-                        {cls}
-                      </option>
-                    ))}
+                    {classes.map((cls) => (<option key={cls} value={cls}>{cls}</option>))}
                   </select>
                 </div>
               </div>
@@ -248,25 +196,14 @@ const DatasetPreview = ({
         </div>
       )}
 
-      {images.length > 0 && (
+      {!hasRealProject && imagesProp?.length > 0 && (
         <div style={styles.summary}>
           <div style={styles.summaryStats}>
-            <span style={styles.summaryStat}>
-              📸 {images.length} total images
-            </span>
-            <span style={styles.summaryStat}>
-              🏷️ {images.filter(img => img.className).length} assigned
-            </span>
-            <span style={styles.summaryStat}>
-              📊 {classes.length} classes
-            </span>
+            <span style={styles.summaryStat}>📸 {imagesProp.length} total images</span>
+            <span style={styles.summaryStat}>🏷️ {imagesProp.filter(img => img.className).length} assigned</span>
+            <span style={styles.summaryStat}>📊 {classes.length} classes</span>
           </div>
-          
-          {filterClass !== "all" && (
-            <div style={styles.filterInfo}>
-              Showing {filteredImages.length} of {images.length} images
-            </div>
-          )}
+          {filterClass !== "all" && (<div style={styles.filterInfo}>Showing {filteredImages.length} of {imagesProp.length} images</div>)}
         </div>
       )}
     </div>
@@ -306,7 +243,9 @@ const styles = {
   selectionButton: {
     padding: '6px 12px',
     backgroundColor: '#ffffff',
-    border: '1px solid #dee2e6',
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: '#dee2e6',
     borderRadius: '4px',
     fontSize: '14px',
     cursor: 'pointer',
@@ -315,6 +254,8 @@ const styles = {
   activeSelectionButton: {
     backgroundColor: '#007bff',
     color: '#ffffff',
+    borderWidth: '1px',
+    borderStyle: 'solid',
     borderColor: '#007bff'
   },
   bulkActions: {
@@ -377,13 +318,17 @@ const styles = {
   },
   imageCard: {
     backgroundColor: '#ffffff',
-    border: '1px solid #e9ecef',
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: '#e9ecef',
     borderRadius: '8px',
     overflow: 'hidden',
     transition: 'all 0.2s ease',
     position: 'relative'
   },
   selectedImageCard: {
+    borderWidth: '1px',
+    borderStyle: 'solid',
     borderColor: '#007bff',
     backgroundColor: '#f8f9ff',
     boxShadow: '0 0 0 2px rgba(0, 123, 255, 0.25)'
@@ -518,7 +463,8 @@ const styles = {
   filterInfo: {
     fontSize: '12px',
     color: '#6c757d'
-  }
+  },
+  bulkDeleteButtonSmall: { padding: '6px 10px', backgroundColor: '#dc3545', color: '#ffffff', border: 'none', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' },
 };
 
 export default DatasetPreview;

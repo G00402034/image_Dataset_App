@@ -63,16 +63,32 @@ const ExportModal = ({
       const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
       const baseName = `${projectName}_${timestamp}`;
 
-      // Generate ZIP in-memory
-      const res = await exportDataset(images, classes, 'zip', { filename: baseName + '.zip' });
-      if (!res.success) throw new Error(res.message || 'ZIP generation failed');
+      // Generate ZIP in-memory and get base64
+      const zipRes = await exportDataset(images, classes, 'zip', { filename: baseName + '.zip', returnContent: true });
+      if (!zipRes.success) throw new Error(zipRes.message || 'ZIP generation failed');
+      const uint8 = zipRes.contentUint8;
+      const base64 = btoa(String.fromCharCode(...uint8));
 
-      // Call backend stub: in future this will upload to Drive
       const apiBase = process.env.REACT_APP_API_BASE || 'http://localhost:4000/api';
-      const response = await fetch(`${apiBase}/drive/export-zip`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: baseName + '.zip' }) });
-      if (!response.ok) throw new Error('Drive export not implemented yet');
+      // Check link status
+      const statusResp = await fetch(`${apiBase}/drive/status`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+      const status = await statusResp.json();
+      if (!statusResp.ok) throw new Error(status.message || 'Drive status error');
+      if (!status.linked) {
+        const authResp = await fetch(`${apiBase}/drive/auth-url`);
+        const authData = await authResp.json();
+        if (!authResp.ok) throw new Error(authData.message || 'Drive auth error');
+        window.open(authData.url, '_blank', 'width=520,height=620');
+        alert('After linking your Google Drive, click Export to Drive again.');
+        setIsExportingToDrive(false);
+        return;
+      }
 
-      alert('Sent to Drive (stub). We will complete this in the next step.');
+      const uploadResp = await fetch(`${apiBase}/drive/export-zip`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: baseName + '.zip', contentBase64: base64 }) });
+      const uploadData = await uploadResp.json();
+      if (!uploadResp.ok) throw new Error(uploadData.message || 'Drive upload failed');
+
+      alert('Uploaded to Google Drive successfully.');
       onClose();
     } catch (e) {
       console.error(e);
